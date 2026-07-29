@@ -8,3 +8,4 @@ jinja2
 tavily-python
 reportlab
 flask-mail
+gunicorn
