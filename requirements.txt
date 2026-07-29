@@ -1,0 +1,10 @@
+pymongo
+flask
+requests
+pydantic
+python-dotenv
+pdfplumber
+jinja2
+tavily-python
+reportlab
+flask-mail
