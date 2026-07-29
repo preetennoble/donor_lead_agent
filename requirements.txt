@@ -1,4 +1,4 @@
-pymongo
+pymongo>=4.6.0
 flask
 requests
 pydantic
@@ -9,3 +9,4 @@ tavily-python
 reportlab
 flask-mail
 gunicorn
+certifi

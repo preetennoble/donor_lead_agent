@@ -1,3 +1,4 @@
+import certifi
 from pymongo import MongoClient
 from datetime import datetime
 import os
@@ -5,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = MongoClient(os.getenv("MONGODB_URI") or "mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+client = MongoClient(os.getenv("MONGODB_URI"),tlsCAFile=certifi.where() )
 db  = client["donor_agent"]
 
 companies_col = db["companies"]
