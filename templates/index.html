@@ -10,64 +10,102 @@
 </head>
 
 <body>
-    <div class="dashboard-container">
-        <header class="dashboard-header">
-            <div class="header-content">
-                <div>
-                    <div class="eyebrow"><span class="pulse-dot"></span> Research intelligence workspace</div>
-                    <div class="logo-area">
-                        <h1>Donor Partner Research Dashboard</h1>
+    <div class="app-shell">
+        <div class="sidebar-scrim" id="sidebarScrim"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <span class="brand-mark">EN</span>
+                <div class="brand-text">
+                    <strong>Ennoble</strong>
+                    <small>Partner Research</small>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#overview" class="nav-item" data-target="overview">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+                    <span>Overview</span>
+                </a>
+                <a href="#add-company" class="nav-item" data-target="add-company">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></svg>
+                    <span>Add Company</span>
+                </a>
+                <a href="#bulk-import" class="nav-item" data-target="bulk-import">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"></path><path d="M7 8l5-5 5 5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>
+                    <span>Bulk Import</span>
+                </a>
+                <a href="#leads" class="nav-item" data-target="leads">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"></path></svg>
+                    <span>Leads</span>
+                    <span class="nav-badge">{{ count }}</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="sidebar-status"><span class="status-indicator"></span> Pipeline active</div>
+            </div>
+        </aside>
+
+        <div class="main-area">
+            <header class="topbar">
+                <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"></path></svg>
+                </button>
+                <div class="topbar-heading">
+                    <p class="eyebrow"><span class="pulse-dot"></span> Research intelligence workspace</p>
+                    <h1>Donor Partner Research Dashboard</h1>
+                </div>
+                <a href="#add-company" class="btn-primary btn-topbar">
+                    <span>Add Company</span>
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </a>
+            </header>
+
+            <main class="content">
+                {% if db_error %}
+                <div class="db-error-alert">
+                    <span class="alert-icon">⚠️</span>
+                    <div class="alert-content">
+                        <strong>Database Error:</strong> {{ db_error }}
                     </div>
-                    <p class="subtitle">Discover, qualify, and move high-fit CSR partners into Zoho Leads.</p>
                 </div>
-                <div class="header-status"><span class="status-indicator"></span> Pipeline active</div>
-            </div>
-        </header>
+                {% endif %}
 
-        {% if db_error %}
-        <div class="db-error-alert">
-            <span class="alert-icon">⚠️</span>
-            <div class="alert-content">
-                <strong>Database Error:</strong> {{ db_error }}
-            </div>
-        </div>
-        {% endif %}
+                <!-- Stats Section -->
+                <section class="stats-grid" id="overview">
+                    <div class="stat-card">
+                        <span class="stat-label">Total Companies</span>
+                        <span class="stat-value">{{ count }}</span>
+                    </div>
+                    <div class="stat-card accent-green">
+                        <span class="stat-label">Tier A / Prioritised</span>
+                        <span class="stat-value">
+                            {{ companies | selectattr('tier', 'equalto', 'Tier A') | list | length }}
+                        </span>
+                    </div>
+                    <div class="stat-card accent-blue">
+                        <span class="stat-label">Approved Leads</span>
+                        <span class="stat-value">
+                            {{ companies | selectattr('approval_status', 'equalto', 'approved') | list | length }}
+                        </span>
+                    </div>
+                    <div class="stat-card accent-purple">
+                        <span class="stat-label">In Zoho Leads</span>
+                        <span class="stat-value">
+                            {{ companies | selectattr('upload_status', 'equalto', 'uploaded') | list | length }}
+                        </span>
+                    </div>
+                </section>
 
-        <!-- Stats Section -->
-        <section class="stats-grid">
-            <div class="stat-card">
-                <span class="stat-label">Total Companies</span>
-                <span class="stat-value">{{ count }}</span>
-            </div>
-            <div class="stat-card accent-green">
-                <span class="stat-label">Tier A / Prioritised</span>
-                <span class="stat-value">
-                    {{ companies | selectattr('tier', 'equalto', 'Tier A') | list | length }}
-                </span>
-            </div>
-            <div class="stat-card accent-blue">
-                <span class="stat-label">Approved Leads</span>
-                <span class="stat-value">
-                    {{ companies | selectattr('approval_status', 'equalto', 'approved') | list | length }}
-                </span>
-            </div>
-            <div class="stat-card accent-purple">
-                <span class="stat-label">In Zoho Leads</span>
-                <span class="stat-value">
-                    {{ companies | selectattr('upload_status', 'equalto', 'uploaded') | list | length }}
-                </span>
-            </div>
-        </section>
-
-        <!-- Add Company Form -->
-        <section class="form-container">
-            <div class="section-heading">
-                <div>
-                    <p class="section-kicker">New research</p>
-                    <h2 class="section-title">Add a company to the pipeline</h2>
-                </div>
-                <p class="section-help">Research, compliance, scoring, and contact discovery run automatically.</p>
-            </div>
+                <!-- Add Company Form -->
+                <section class="form-container" id="add-company">
+                    <div class="section-heading">
+                        <div>
+                            <p class="section-kicker">New research</p>
+                            <h2 class="section-title">Add a company to the pipeline</h2>
+                        </div>
+                        <p class="section-help">Research, compliance, scoring, and contact discovery run automatically.</p>
+                    </div>
             <form action="/research" method="post" class="add-company-form" id="addCompanyForm">
                 <div class="input-group">
                     <input type="text" name="company_name" placeholder="Enter Company Name (e.g. Tata Steel)" required>
@@ -85,8 +123,32 @@
             </form>
         </section>
 
+        <!-- Bulk CSV Upload Form -->
+        <section class="form-container" id="bulk-import">
+            <div class="section-heading">
+                <div>
+                    <p class="section-kicker">Bulk import</p>
+                    <h2 class="section-title">Upload a CSV of companies</h2>
+                </div>
+                <p class="section-help">Columns: <code>company_name</code> (required), <code>website</code>
+                    (optional). Each row runs the same pipeline as the form above.</p>
+            </div>
+            <form id="bulkUploadForm" class="add-company-form" enctype="multipart/form-data">
+                <div class="input-group">
+                    <input type="file" name="csv_file" accept=".csv" required>
+                </div>
+                <button type="submit" class="btn-primary">
+                    <span>Upload &amp; Run Pipeline</span>
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
+            </form>
+            <div id="bulkStatus" class="section-help" style="margin-top:10px;"></div>
+        </section>
+
         <!-- Companies Table Section -->
-        <section class="table-container">
+        <section class="table-container" id="leads">
             <div class="table-header-row">
                 <div>
                     <p class="section-kicker">Pipeline overview</p>
@@ -142,11 +204,23 @@
                                 <span class="status-badge status-{{ c.status }}">
                                     {{ c.status }}
                                 </span>
+                                {% if c.get('record_stage') and c.record_stage not in ['New', 'NEW'] %}
+                                <span class="record-stage-badge stage-{{ c.record_stage | replace(' ', '-') }}"
+                                    title="{{ c.get('fitment_reasoning', '') }}"
+                                    style="display:inline-block; margin-top:6px; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.04em;
+                                    {% if c.record_stage == 'Prospect' %}background:rgba(34,197,94,0.15); color:#22c55e; border:1px solid rgba(34,197,94,0.35);
+                                    {% elif c.record_stage == 'Nurture' %}background:rgba(234,179,8,0.15); color:#eab308; border:1px solid rgba(234,179,8,0.35);
+                                    {% elif c.record_stage == 'Disqualified' %}background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35);
+                                    {% else %}background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.35);{% endif %}">
+                                    {{ c.record_stage }}
+                                </span>
+                                {% endif %}
                             </td>
                             <td>
                                 {% if c.score is not none %}
                                 <div class="score-container">
-                                    <span class="score-badge tier-{{ c.tier | replace(' ', '-') }}">
+                                    <span class="score-badge tier-{{ c.tier | replace(' ', '-') }}"
+                                        {% if c.get('tier_reasoning') %}title="{{ c.tier_reasoning }}"{% endif %}>
                                         {{ c.score }} ({{ c.tier }})
                                     </span>
                                 </div>
@@ -283,9 +357,19 @@
                                             </div>
                                             <div class="detail-field">
                                                 <strong>Source URL:</strong>
-                                                {% if research and research.get('source_url') %}
-                                                <a href="{{ research.get('source_url', '#') }}" target="_blank"
-                                                    class="source-link">View Source</a>
+                                                {% set source_urls = (research.get('source_url', '') if research else '').split(';') %}
+                                                {% set valid_urls = [] %}
+                                                {% for u in source_urls %}
+                                                    {% set u = u.strip() %}
+                                                    {% if u and u != 'Not Found' and 'http' in u %}
+                                                        {% set _ = valid_urls.append(u) %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                                {% if valid_urls %}
+                                                    {% for u in valid_urls %}
+                                                    <a href="{{ u }}" target="_blank"
+                                                        class="source-link">Source {{ loop.index }}</a>{% if not loop.last %}<span> · </span>{% endif %}
+                                                    {% endfor %}
                                                 {% else %}
                                                 <span>-</span>
                                                 {% endif %}
@@ -562,6 +646,12 @@
                                                 <span>{% if c.get('compliance_blocked') %}🚫 Blocked{% else %}✓
                                                     Verified{% endif %}</span>
                                             </div>
+                                            {% if c.get('tier_reasoning') %}
+                                            <div class="detail-field full-width">
+                                                <strong>Why {{ c.tier }}?</strong>
+                                                <span>{{ c.tier_reasoning }}</span>
+                                            </div>
+                                            {% endif %}
                                         </div>
                                     </div>
 
@@ -601,6 +691,8 @@
             </div>
             {% endif %}
         </section>
+            </main>
+        </div>
     </div>
 
     <!-- ✉️ Email Research Modal -->
@@ -1030,6 +1122,54 @@
             }
         });
 
+        document.getElementById('bulkUploadForm')?.addEventListener('submit', async event => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const button = form.querySelector('button[type="submit"]');
+            const statusEl = document.getElementById('bulkStatus');
+            button.disabled = true;
+            button.querySelector('span').textContent = 'Uploading…';
+            statusEl.textContent = '';
+            try {
+                const response = await fetch('/research-bulk', { method: 'POST', body: new FormData(form) });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Could not start the bulk pipeline.');
+
+                const total = result.started.length;
+                const skippedNote = result.skipped ? ` (${result.skipped} row(s) skipped — blank or duplicate names)` : '';
+                statusEl.textContent = `Started research for ${total} compan${total === 1 ? 'y' : 'ies'}${skippedNote}. Tracking progress…`;
+                showNotification(`Bulk pipeline started for ${total} compan${total === 1 ? 'y' : 'ies'}.`, 'success');
+                trackBulkProgress(result.started.map(c => c.company_id), statusEl);
+            } catch (error) {
+                statusEl.textContent = error.message;
+            } finally {
+                button.disabled = false;
+                button.querySelector('span').textContent = 'Upload & Run Pipeline';
+                form.reset();
+            }
+        });
+
+        function trackBulkProgress(companyIds, statusEl) {
+            const total = companyIds.length;
+            const poller = setInterval(async () => {
+                try {
+                    const results = await Promise.all(
+                        companyIds.map(id => fetch(`/research-progress/${id}`).then(r => r.json()).catch(() => ({ state: 'error' })))
+                    );
+                    const done = results.filter(r => r.state === 'complete' || r.state === 'error').length;
+                    statusEl.textContent = `Bulk pipeline: ${done} of ${total} companies finished…`;
+                    if (done >= total) {
+                        clearInterval(poller);
+                        statusEl.textContent = `Bulk pipeline complete: ${total} of ${total} companies finished. Refreshing…`;
+                        setTimeout(() => window.location.reload(), 1200);
+                    }
+                } catch (error) {
+                    clearInterval(poller);
+                    statusEl.textContent = 'Unable to track bulk progress. Please refresh the dashboard.';
+                }
+            }, 1500);
+        }
+
         // Toggle expandable details row
         function toggleDetails(companyId) {
             const detailsRow = document.getElementById('details-' + companyId);
@@ -1409,6 +1549,35 @@
                 .catch(err => {
                     showNotification('Error copying GPT table row: ' + err.message, 'error');
                 });
+        }
+
+        // ── Sidebar toggle (mobile) ──
+        const sidebarEl = document.getElementById('sidebar');
+        const sidebarToggleBtn = document.getElementById('sidebarToggle');
+        const sidebarScrim = document.getElementById('sidebarScrim');
+
+        function setSidebarOpen(open) {
+            sidebarEl.classList.toggle('is-open', open);
+            sidebarScrim.classList.toggle('is-visible', open);
+        }
+        sidebarToggleBtn?.addEventListener('click', () => setSidebarOpen(!sidebarEl.classList.contains('is-open')));
+        sidebarScrim?.addEventListener('click', () => setSidebarOpen(false));
+        document.querySelectorAll('.nav-item').forEach(link => link.addEventListener('click', () => setSidebarOpen(false)));
+
+        // ── Sidebar nav scrollspy ──
+        const navItems = document.querySelectorAll('.nav-item[data-target]');
+        const navSections = Array.from(navItems)
+            .map(item => document.getElementById(item.dataset.target))
+            .filter(Boolean);
+
+        if (navSections.length && 'IntersectionObserver' in window) {
+            const spy = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) return;
+                    navItems.forEach(item => item.classList.toggle('is-active', item.dataset.target === entry.target.id));
+                });
+            }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
+            navSections.forEach(section => spy.observe(section));
         }
     </script>
 </body>

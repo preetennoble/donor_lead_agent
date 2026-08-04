@@ -1,3 +1,15 @@
+def first_source_url(research: dict) -> str:
+    """`source_url` may hold several URLs joined by ';'. Return only the first valid
+    one so it can be safely used as a single link / Website fallback (never the whole
+    concatenated string, which is not a valid URL)."""
+    raw = (research or {}).get("source_url", "") or ""
+    for part in str(raw).split(";"):
+        part = part.strip()
+        if part and part.lower() != "not found" and "http" in part.lower():
+            return part
+    return ""
+
+
 def map_to_zoho_lead(company_data: dict) -> dict:
     """
     Maps a MongoDB company record to the Zoho CRM Leads module.
@@ -52,7 +64,7 @@ def map_to_zoho_lead(company_data: dict) -> dict:
     payload = {
         "Last_Name": company_data.get("company_name") or "Unknown Company",
         "Company": company_data.get("company_name") or "Unknown Company",
-        "Website": clean(company_data.get("website") or research.get("source_url")),
+        "Website": clean(company_data.get("website") or first_source_url(research)),
         "Industry": clean(research.get("industry")),
         "City": clean(research.get("city")),
         "State": clean(research.get("state") or research.get("geographical_priority")),
@@ -120,7 +132,7 @@ def map_to_zoho_format(company: dict) -> dict:
     return {
         # Company fields
         "Company": company.get("company_name") or "Unknown Company",
-        "Website": company.get("website") or research.get("source_url", ""),
+        "Website": company.get("website") or first_source_url(research),
         "Industry": research.get("industry", "Not publicly available"),
         "Description": "\n".join(description_parts),
         # Contact fields from research_json.contact
@@ -150,7 +162,7 @@ def format_gpt_horizontal_table(company: dict) -> str:
         "Category", "Company CSR Focus", "Thematic Focus", "Ennoble Fitment",
         "STEM Education", "School Infrastructure Transformation", "Holistic School Transformation",
         "Anganwadi Transformation", "Quality Education", "Model School Transformation",
-        "Geographical Priority Program District & State", "CSR Spent of Previous Financial Year",
+        "Geographical Priority", "Program District & State", "CSR Spent of Previous Financial Year",
         "CSR Spent of Previous 3 Financial Year", "Education - CSR Spend", "Unspent CSR Amount",
         "Do they Have Company Foundation", "Names of Existing Implementation Partners",
         "No. of Existing Implementation Partners", "Avg. Ticket Size for Project Approved",
@@ -183,14 +195,15 @@ def format_gpt_horizontal_table(company: dict) -> str:
         company.get("tier") or company.get("category") or "Tier B",
         research.get("company_csr_focus", "Not publicly available"),
         thematic,
-        f"{company.get('score', '-')} ({company.get('tier', 'Tier B')})",
+        fitment.get("Ennoble Fitment", "Not Evident"),
         fitment.get("STEM Education", "Not Evident"),
         fitment.get("School Infrastructure Transformation", "Not Evident"),
         fitment.get("Holistic School Transformation", "Not Evident"),
         fitment.get("Anganwadi Transformation", "Not Evident"),
         fitment.get("Quality Education", "Not Evident"),
         fitment.get("Model School Transformation", "Not Evident"),
-        f"{research.get('geographical_priority', '-')}, {research.get('program_district_state', '-')}",
+        research.get("geographical_priority", "Not publicly available"),
+        research.get("program_district_state", "Not publicly available"),
         research.get("csr_spend_previous_fy", "Not publicly available"),
         research.get("csr_spend_previous_3fy", "Not publicly available"),
         research.get("education_csr_spend", "Not publicly available"),

@@ -12,7 +12,9 @@ def check_compliance(company_id: str, research: CompanyResearch) -> dict:
         issues.append("Education CSR spend not verified")
 
     confidence = "verified" if not issues else "unverified"
-    blocked = len(issues) >= 2
+    # Per Lead Fitment Guidelines: weak/unverified signals should NOT be hard-dropped here.
+    # The fit-check (decide_record_stage) routes such leads to Nurture / Enriched Data / Disqualified.
+    blocked = False
 
     update_company(company_id, {
         "status": "compliance_checked",

@@ -1,4 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
+import csv
+import io
 import os
 import threading
 from datetime import datetime
@@ -53,11 +55,11 @@ def run_company_pipeline(company_id, company_name, website):
             set_pipeline_progress(company_id, "complete", "Pipeline finished: this company was blocked by compliance checks.", "complete", 100)
             return
 
-        set_pipeline_progress(company_id, "scoring", "Calculating the partnership fit score.", percent=75)
+        set_pipeline_progress(company_id, "scoring", "Running fit-check and partnership assessment.", percent=75)
         score_result = score_company(company_id)
-        if score_result.get("score", 0) >= 85:
-            set_pipeline_progress(company_id, "contacts", "Finding relevant decision-makers for this high-fit lead.", percent=90)
-            find_decision_makers_apollo(company_id, company_name, website)
+        if score_result.get("record_stage") == "Prospect":
+            set_pipeline_progress(company_id, "contacts", "Finding relevant decision-makers for this Prospect lead.", percent=90)
+            find_decision_makers_apollo(company_name, website)
 
         set_pipeline_progress(company_id, "complete", "Pipeline complete. The lead is ready for review.", "complete", 100)
     except Exception as error:
@@ -100,6 +102,64 @@ def add_company():
         target=run_company_pipeline, args=(company_id, company_name, website), daemon=True
     ).start()
     return jsonify({"status": "started", "company_id": company_id}), 202
+
+
+MAX_BULK_ROWS = 200
+
+
+@app.route("/research-bulk", methods=["POST"])
+def add_companies_bulk():
+    upload = request.files.get("csv_file")
+    if not upload or not upload.filename:
+        return jsonify({"status": "error", "message": "Please choose a CSV file to upload."}), 400
+
+    try:
+        raw = upload.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return jsonify({"status": "error", "message": "Could not read the file. Please upload a UTF-8 CSV."}), 400
+
+    reader = csv.DictReader(io.StringIO(raw))
+    if not reader.fieldnames or not any(
+        (name or "").strip().lower() == "company_name" for name in reader.fieldnames
+    ):
+        return jsonify({
+            "status": "error",
+            "message": "CSV must have a 'company_name' column (a 'website' column is optional)."
+        }), 400
+
+    field_map = {(name or "").strip().lower(): name for name in reader.fieldnames}
+    name_key = field_map["company_name"]
+    website_key = field_map.get("website")
+
+    started = []
+    seen_names = set()
+    skipped = 0
+
+    for row in reader:
+        if len(started) >= MAX_BULK_ROWS:
+            skipped += 1
+            continue
+
+        company_name = (row.get(name_key) or "").strip()
+        website = (row.get(website_key) or "").strip() if website_key else ""
+
+        dedupe_key = company_name.lower()
+        if not company_name or dedupe_key in seen_names:
+            skipped += 1
+            continue
+        seen_names.add(dedupe_key)
+
+        company_id = create_company(company_name, website or None)
+        set_pipeline_progress(company_id, "queued", "Company added. Preparing the research pipeline.", percent=5)
+        threading.Thread(
+            target=run_company_pipeline, args=(company_id, company_name, website or None), daemon=True
+        ).start()
+        started.append({"company_id": company_id, "company_name": company_name})
+
+    if not started:
+        return jsonify({"status": "error", "message": "No valid company names found in the CSV."}), 400
+
+    return jsonify({"status": "started", "started": started, "skipped": skipped}), 202
 
 
 @app.route("/research-progress/<company_id>", methods=["GET"])

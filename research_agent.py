@@ -61,6 +61,12 @@ def research_company(company_id: str, company_name: str, website: str = None):
         log_action(company_id, "research_failed", "ResearchAgent", details="No search results found.")
         return None
 
+    # extract_research_with_contact() truncates the combined text before sending it to the
+    # LLM, so put the highest-priority (richest CSR/financial) sources first - otherwise
+    # chatty low-value LinkedIn/Media sources can crowd out the CSR Report/Annual Report
+    # content the extraction prompt actually needs.
+    sources.sort(key=lambda s: s.get("priority", 99))
+
     print(f"[ResearchAgent] Gathered {len(sources)} sources for {company_name}")
 
     research = extract_research_with_contact(company_name, sources)
