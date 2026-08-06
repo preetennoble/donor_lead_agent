@@ -10,3 +10,5 @@ reportlab
 flask-mail
 gunicorn
 certifi
+groq
+beautifulsoup4

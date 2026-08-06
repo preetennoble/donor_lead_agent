@@ -3,15 +3,21 @@ import os
 import requests
 import pdfplumber
 import io
-from search_tool import search_company_csr_info, search_contact_sources
+from search_tool import (
+    search_company_csr_info,
+    search_contact_sources,
+    search_annual_report_pdf_via_screener,
+    search_annual_report_pdf,
+    get_financials_from_screener,
+)
 from extraction_tool import extract_research_with_contact
+from financial_extractor import extract_csr_data, check_prospect_criteria, calculate_csr_budget, calculate_net_profit_csr_budget
+from pdf_utils import extract_csr_section_text, _headers_for
+
 
 def extract_pdf_text(pdf_url: str) -> str:
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        response = requests.get(pdf_url, headers=headers, timeout=15)
+        response = requests.get(pdf_url, headers=_headers_for(pdf_url), timeout=15)
         response.raise_for_status()
         
         # Verify it is indeed a PDF
@@ -99,6 +105,115 @@ def research_company_with_contact(company_id: str, company_name: str, website: s
     })
 
     return research
+
+
+def research_company_with_financials(company_id: str, company_name: str, website: str = None):
+    """
+    Screener se company dhundo, uske structured P&L/Balance Sheet tables se
+    turnover/PBT/net worth/net profit nikalo (accurate, no LLM guessing),
+    aur annual report PDF se CSR-specific qualitative data (focus areas,
+    partners, etc.) LLM se extract karo.
+    """
+
+    print(f"\n[🔍 Financial Research] {company_name} ke liye start...")
+
+    # Step 1: Screener pe company dhundo
+    print(f"[Step 1] Screener pe {company_name} dhundh rahe hain...")
+    screener_result = search_annual_report_pdf_via_screener(company_name)
+
+    screener_url = screener_result.get("screener_url") if screener_result else None
+    report_url = screener_result.get("pdf_url") if screener_result else None
+
+    if not screener_url:
+        print(f"[❌] {company_name} Screener pe nahi mila")
+        # Note: sirf "financial_research_status" set karte hain, "status" nahi -
+        # wo field research_company()/compliance_agent/scoring_agent ke pipeline
+        # stage ko track karta hai aur is function se overwrite nahi hona chahiye.
+        update_company(company_id, {"financial_research_status": "not_found_on_screener"})
+        log_action(company_id, "screener_search_failed", "ResearchAgent")
+        return None
+
+    # Step 2: Screener ke structured tables se turnover/PBT/net worth nikalo
+    # years=4 taaki CSR budget calc ke liye "current" + pichle 3 saal dono mil jayein
+    print(f"[Step 2] Screener se financial numbers nikal rahe hain...")
+    financial_data = get_financials_from_screener(screener_url, years=4)
+
+    if not financial_data.get("fiscal_years"):
+        print(f"[❌] Screener par financial tables nahi mile")
+        update_company(company_id, {"financial_research_status": "no_financials_found"})
+        log_action(company_id, "financials_scrape_failed", "ResearchAgent")
+        return None
+
+    print(f"[✅] Financial data mila for years: {financial_data['fiscal_years']}")
+
+    # Step 2b: CSR budget calculate karo (current year exclude, pichle 3 saal ka avg PBT * 2%)
+    csr_budget = calculate_csr_budget(financial_data)
+    if csr_budget.get("csr_budget_2pct") is not None:
+        print(f"[✅] CSR Budget: ₹{csr_budget['csr_budget_2pct']} Cr (2% of avg PBT {csr_budget['calc_years']})")
+    else:
+        print(f"[⚠️] CSR Budget calculate nahi ho saka: {csr_budget.get('note')}")
+
+    # Step 2c: same calculation Net Profit ke average se bhi (PBT wala tarika, bas metric alag)
+    csr_budget_net_profit = calculate_net_profit_csr_budget(financial_data)
+    if csr_budget_net_profit.get("csr_budget_2pct_net_profit") is not None:
+        print(f"[✅] CSR Budget (Net Profit basis): ₹{csr_budget_net_profit['csr_budget_2pct_net_profit']} Cr (2% of avg Net Profit {csr_budget_net_profit['calc_years']})")
+    else:
+        print(f"[⚠️] CSR Budget (Net Profit basis) calculate nahi ho saka: {csr_budget_net_profit.get('note')}")
+
+    # Step 3: Annual report PDF na mile to general web search fallback
+    if not report_url:
+        print(f"[Fallback] Screener se PDF nahi mila, general web search try kar rahe hain...")
+        report_url = search_annual_report_pdf(company_name, website)
+
+    # Step 4: PDF se CSR data extract karo (optional - financial data ke bina bhi chal sakta hai)
+    # Note: CSR Annexure section usually report ke aakhri hisse mein hota hai,
+    # isliye pehle N pages ki jagah poore PDF mein CSR-keyword wale pages dhoondhte hain.
+    csr_data = None
+    if report_url:
+        print(f"[Step 4] PDF ke CSR-relevant pages dhoondhe ja rahe hain...")
+        pdf_text = extract_csr_section_text(report_url)
+
+        if pdf_text:
+            print(f"[✅] CSR section text mila - {len(pdf_text)} characters")
+            print(f"[Step 5] CSR data extract ho raha hai...")
+            csr_data = extract_csr_data(pdf_text, company_name)
+            print(f"[Debug] Raw CSR data from LLM: {json.dumps(csr_data, indent=2)}")
+        else:
+            print(f"[⚠️] PDF extract nahi ho saka, CSR data skip ho raha hai")
+    else:
+        print(f"[⚠️] Annual report PDF nahi mila, CSR data skip ho raha hai")
+
+    # Step 6: Prospect criteria check karo
+    print(f"[Step 6] Prospect criteria check ho raha hai...")
+    is_prospect = check_prospect_criteria(financial_data)
+
+    if is_prospect:
+        print(f"[✅] {company_name} = PROSPECT")
+    else:
+        print(f"[❌] {company_name} = NOT A PROSPECT")
+
+    # Step 7: Database mein save karo
+    print(f"[Step 7] Database mein save ho raha hai...")
+    update_company(company_id, {
+        "screener_url": screener_url,
+        "annual_report_url": report_url,
+        "financial_data": financial_data,
+        "csr_budget": csr_budget,
+        "csr_budget_net_profit": csr_budget_net_profit,
+        "csr_data": csr_data,
+        "is_prospect": is_prospect,
+        "financial_research_status": "done"
+    })
+
+    log_action(
+        company_id,
+        "financial_research_completed",
+        "ResearchAgent",
+        details=f"Prospect: {is_prospect}"
+    )
+
+    print(f"[✅ Complete] {company_name} research done")
+    return {"financial": financial_data, "csr_budget": csr_budget, "csr_budget_net_profit": csr_budget_net_profit, "csr": csr_data}
 
 
 if __name__ == "__main__":

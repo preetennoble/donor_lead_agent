@@ -38,9 +38,20 @@
                     <span>Leads</span>
                     <span class="nav-badge">{{ count }}</span>
                 </a>
+                {% if role == 'admin' %}
+                <a href="/admin" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 4-6 8-6s8 2 8 6"></path></svg>
+                    <span>Admin Panel</span>
+                </a>
+                {% endif %}
             </nav>
             <div class="sidebar-footer">
                 <div class="sidebar-status"><span class="status-indicator"></span> Pipeline active</div>
+                {% if username %}
+                <div class="sidebar-status" style="margin-top:0.5rem;">
+                    <span>{{ username }}</span> · <a href="/logout" style="color:inherit;">Logout</a>
+                </div>
+                {% endif %}
             </div>
         </aside>
 
@@ -75,24 +86,24 @@
                 <section class="stats-grid" id="overview">
                     <div class="stat-card">
                         <span class="stat-label">Total Companies</span>
-                        <span class="stat-value">{{ count }}</span>
+                        <span class="stat-value">{{ count | commas }}</span>
                     </div>
                     <div class="stat-card accent-green">
                         <span class="stat-label">Tier A / Prioritised</span>
                         <span class="stat-value">
-                            {{ companies | selectattr('tier', 'equalto', 'Tier A') | list | length }}
+                            {{ companies | selectattr('tier', 'equalto', 'Tier A') | list | length | commas }}
                         </span>
                     </div>
                     <div class="stat-card accent-blue">
                         <span class="stat-label">Approved Leads</span>
                         <span class="stat-value">
-                            {{ companies | selectattr('approval_status', 'equalto', 'approved') | list | length }}
+                            {{ companies | selectattr('approval_status', 'equalto', 'approved') | list | length | commas }}
                         </span>
                     </div>
                     <div class="stat-card accent-purple">
                         <span class="stat-label">In Zoho Leads</span>
                         <span class="stat-value">
-                            {{ companies | selectattr('upload_status', 'equalto', 'uploaded') | list | length }}
+                            {{ companies | selectattr('upload_status', 'equalto', 'uploaded') | list | length | commas }}
                         </span>
                     </div>
                 </section>
@@ -375,14 +386,240 @@
                                                 {% endif %}
                                             </div>
 
+                                            <!-- ── Financial Data Section ── -->
+                                            {% set financial_data = c.get('financial_data') or {} %}
+                                            {% if financial_data and (financial_data.get('turnover') or financial_data.get('pbt')) %}
+                                            <div class="detail-field financial-data-block"
+                                                style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom: 10px;">
+                                                    <strong style="font-size:13px; color:#f59e0b; text-transform:uppercase; letter-spacing:0.06em;">💰 Financial Data</strong>
+                                                    {% if c.get('screener_url') %}
+                                                    <span style="font-size: 12px; color: #94a3b8;">
+                                                        Source: <a href="{{ c.get('screener_url') }}" target="_blank" rel="noopener noreferrer" class="source-link">📊 Screener.in ↗</a>
+                                                    </span>
+                                                    {% endif %}
+                                                </div>
+
+                                                {% set is_prospect = c.get('is_prospect') %}
+                                                <div style="margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; {% if is_prospect %}background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.35);{% else %}background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35);{% endif %}">
+                                                    <span style="font-weight:600; {% if is_prospect %}color:#22c55e;{% else %}color:#ef4444;{% endif %}">
+                                                        🎯 Prospect Status: <strong>{% if is_prospect %}✅ YES - Meets Criteria{% else %}❌ NO - Does Not Meet Criteria{% endif %}</strong>
+                                                    </span>
+                                                </div>
+
+                                                {% set fiscal_years = financial_data.get('fiscal_years', []) %}
+                                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                                                    <!-- Turnover -->
+                                                    <div style="background: rgba(59, 130, 246, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">Annual Turnover (₹ Cr)</div>
+                                                        {% for fy in fiscal_years %}
+                                                        <div>
+                                                            <span style="font-size: 13px; color: #cbd5e1;">{{ fy }}:</span>
+                                                            <span style="font-weight: 600; color: #f1f5f9;">{{ financial_data.get('turnover', {}).get(fy, '-') | commas }}</span>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <!-- PBT -->
+                                                    <div style="background: rgba(168, 85, 247, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">PBT (₹ Cr)</div>
+                                                        {% for fy in fiscal_years %}
+                                                        <div>
+                                                            <span style="font-size: 13px; color: #cbd5e1;">{{ fy }}:</span>
+                                                            <span style="font-weight: 600; color: #f1f5f9;">{{ financial_data.get('pbt', {}).get(fy, '-') | commas }}</span>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <!-- Net Profit -->
+                                                    <div style="background: rgba(34, 197, 94, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(34, 197, 94, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">Net Profit (₹ Cr)</div>
+                                                        {% for fy in fiscal_years %}
+                                                        <div>
+                                                            <span style="font-size: 13px; color: #cbd5e1;">{{ fy }}:</span>
+                                                            <span style="font-weight: 600; color: #f1f5f9;">{{ financial_data.get('net_profit', {}).get(fy, '-') | commas }}</span>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <!-- Net Worth -->
+                                                    <div style="background: rgba(245, 158, 11, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">Net Worth (₹ Cr)</div>
+                                                        {% for fy in fiscal_years %}
+                                                        <div>
+                                                            <span style="font-size: 13px; color: #cbd5e1;">{{ fy }}:</span>
+                                                            <span style="font-weight: 600; color: #f1f5f9;">{{ financial_data.get('net_worth', {}).get(fy, '-') | commas }}</span>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <!-- CSR Spend -->
+                                                    {% set csr_data = c.get('csr_data') or {} %}
+                                                    <div style="background: rgba(236, 72, 153, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(236, 72, 153, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">
+                                                            Annual CSR Spend (₹ Cr){% if csr_data.get('csr_spend_year') %} &middot; {{ csr_data.get('csr_spend_year') }}{% endif %}
+                                                        </div>
+                                                        <div style="font-weight: 600; color: #f1f5f9; font-size: 14px;">{{ csr_data.get('csr_spend', '-') | commas }}</div>
+                                                    </div>
+
+                                                    <!-- CSR Unspent Amount -->
+                                                    <div style="background: rgba(239, 68, 68, 0.1); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                                                        <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">CSR Unspent Amount (₹ Cr)</div>
+                                                        <div style="font-weight: 600; color: #f1f5f9; font-size: 14px;">{{ csr_data.get('csr_unspent_amount', '-') | commas }}</div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- CSR Spend - Previous Years -->
+                                                {% set csr_spend_history = csr_data.get('csr_spend_history') or {} %}
+                                                {% if csr_spend_history %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                    <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">CSR Spend - Previous Years (₹ Cr):</div>
+                                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
+                                                        {% for fy, amount in csr_spend_history.items() %}
+                                                        <div style="background: rgba(148,163,184,0.08); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.15); text-align:center;">
+                                                            <div style="font-size: 11px; color: #94a3b8;">{{ fy }}</div>
+                                                            <div style="font-weight: 600; color: #f1f5f9; font-size: 13px;">₹{{ amount | commas }} Cr</div>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                                {% endif %}
+
+                                                <!-- CSR Focus Areas & Partners -->
+                                                {% if csr_data %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                    <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">CSR Focus Areas:</div>
+                                                    <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                                                        {% for area in (csr_data.get('focus_areas') or []) %}
+                                                        <span style="background: rgba(59, 130, 246, 0.2); color: #38bdf8; padding: 4px 10px; border-radius: 4px; font-size: 12px;">{{ area }}</span>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    {% if csr_data.get('implementation_partners') %}
+                                                    <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">Implementation Partners (NGOs):</div>
+                                                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                                        {% for partner in (csr_data.get('implementation_partners') or [])[:5] %}
+                                                        <span style="background: rgba(168, 85, 247, 0.2); color: #d8b4fe; padding: 4px 10px; border-radius: 4px; font-size: 12px;">{{ partner }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                                {% endif %}
+
+                                                <!-- CSR Budget Calculation (2% of avg PBT of the 3 years before the current one) -->
+                                                {% set csr_budget = c.get('csr_budget') or {} %}
+                                                {% if csr_budget.get('csr_budget_2pct') is not none %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                    <div style="font-size: 12px; color: #38bdf8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.04em;">📐 CSR Budget Calculation</div>
+
+                                                    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+                                                        Current year <strong style="color:#cbd5e1;">{{ csr_budget.get('excluded_year') }}</strong> excluded &middot;
+                                                        average PBT of the previous 3 years &times; 2% (Companies Act CSR formula)
+                                                    </div>
+
+                                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px;">
+                                                        {% for fy in csr_budget.get('calc_years', []) %}
+                                                        <div style="background: rgba(148,163,184,0.08); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.15); text-align:center;">
+                                                            <div style="font-size: 11px; color: #94a3b8;">{{ fy }} PBT</div>
+                                                            <div style="font-weight: 600; color: #f1f5f9; font-size: 13px;">₹{{ csr_budget.get('pbt_values', {}).get(fy, '-') | commas }} Cr</div>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                                        <div style="background: rgba(56, 189, 248, 0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                                                            <span style="font-size: 12px; color: #94a3b8;">Average PBT (3 yrs):</span>
+                                                            <strong style="color:#38bdf8; margin-left:6px;">₹{{ csr_budget.get('average_pbt') | commas }} Cr</strong>
+                                                        </div>
+                                                        <span style="color:#64748b;">&times; 2% =</span>
+                                                        <div style="background: rgba(34, 197, 94, 0.15); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(34, 197, 94, 0.35);">
+                                                            <span style="font-size: 12px; color: #94a3b8;">CSR Budget:</span>
+                                                            <strong style="color:#22c55e; margin-left:6px; font-size: 14px;">₹{{ csr_budget.get('csr_budget_2pct') | commas }} Cr</strong>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {% elif csr_budget.get('note') %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #94a3b8;">
+                                                    📐 CSR Budget Calculation: {{ csr_budget.get('note') }}
+                                                </div>
+                                                {% endif %}
+
+                                                <!-- CSR Budget Calculation (2% of avg Net Profit of the 3 years before the current one) -->
+                                                {% set csr_budget_np = c.get('csr_budget_net_profit') or {} %}
+                                                {% if csr_budget_np.get('csr_budget_2pct_net_profit') is not none %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                    <div style="font-size: 12px; color: #38bdf8; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.04em;">📐 CSR Budget Calculation (Net Profit basis)</div>
+
+                                                    <div style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+                                                        Current year <strong style="color:#cbd5e1;">{{ csr_budget_np.get('excluded_year') }}</strong> excluded &middot;
+                                                        average Net Profit of the previous 3 years &times; 2% (Companies Act CSR formula)
+                                                    </div>
+
+                                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px;">
+                                                        {% for fy in csr_budget_np.get('calc_years', []) %}
+                                                        <div style="background: rgba(148,163,184,0.08); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.15); text-align:center;">
+                                                            <div style="font-size: 11px; color: #94a3b8;">{{ fy }} Net Profit</div>
+                                                            <div style="font-weight: 600; color: #f1f5f9; font-size: 13px;">₹{{ csr_budget_np.get('net_profit_values', {}).get(fy, '-') | commas }} Cr</div>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+
+                                                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                                        <div style="background: rgba(56, 189, 248, 0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                                                            <span style="font-size: 12px; color: #94a3b8;">Average Net Profit (3 yrs):</span>
+                                                            <strong style="color:#38bdf8; margin-left:6px;">₹{{ csr_budget_np.get('average_net_profit') | commas }} Cr</strong>
+                                                        </div>
+                                                        <span style="color:#64748b;">&times; 2% =</span>
+                                                        <div style="background: rgba(34, 197, 94, 0.15); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(34, 197, 94, 0.35);">
+                                                            <span style="font-size: 12px; color: #94a3b8;">CSR Budget:</span>
+                                                            <strong style="color:#22c55e; margin-left:6px; font-size: 14px;">₹{{ csr_budget_np.get('csr_budget_2pct_net_profit') | commas }} Cr</strong>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {% elif csr_budget_np.get('note') %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #94a3b8;">
+                                                    📐 CSR Budget Calculation (Net Profit basis): {{ csr_budget_np.get('note') }}
+                                                </div>
+                                                {% endif %}
+
+                                                <!-- Source URLs -->
+                                                {% if c.get('annual_report_url') or c.get('screener_url') %}
+                                                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                                    <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">📄 Source Documents:</div>
+                                                    {% if c.get('screener_url') %}
+                                                    <div style="margin-bottom: 6px;">
+                                                        <a href="{{ c.get('screener_url') }}" target="_blank" class="source-link" style="font-size: 12px;">📊 Screener Profile</a>
+                                                    </div>
+                                                    {% endif %}
+                                                    {% if c.get('annual_report_url') %}
+                                                    <div>
+                                                        <a href="{{ c.get('annual_report_url') }}" target="_blank" class="source-link" style="font-size: 12px;">📑 Annual Report PDF</a>
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
+                                            <!-- ── Financial Data Section END ── -->
+
                                             <!-- ── Ennoble Program Fitment ── -->
                                             <div class="detail-field csr-programs-block"
                                                 style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
                                                 <strong style="display:block; margin-bottom: 10px; font-size:13px; color:#38bdf8; text-transform:uppercase; letter-spacing:0.06em;">Ennoble Program Fitment</strong>
                                                 {% set pfit = c.get('program_fitment', {}) or {} %}
+                                                {% if not pfit %}
+                                                <div style="font-size: 13px; color: #94a3b8;">Not scored yet - this company hasn't been through the scoring agent.</div>
+                                                {% else %}
+                                                <!--
+                                                    Every badge below is the literal value the scoring agent (scoring_agent.py
+                                                    rate_program_fitment / decide_record_stage) saved to program_fitment.
+                                                    No client-side guessing - "Not Evident" means the agent genuinely found
+                                                    no evidence for that program, and is shown as-is rather than replaced
+                                                    with an invented High/Medium/Low badge.
+                                                -->
                                                 <div class="csr-program-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px;">
 
-                                                    {% set overall_fit = pfit.get('Ennoble Fitment', 'High Fit' if c.tier == 'Tier A' else ('Medium Fit' if c.tier == 'Tier B' else 'Low Fit')) %}
+                                                    {% set overall_fit = pfit.get('Ennoble Fitment', 'Not Evident') %}
                                                     <div class="csr-program-item" style="grid-column: 1 / -1; background: rgba(56, 189, 248, 0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25);">
                                                         <span class="csr-program-label" style="font-weight:700; color:#f1f5f9;">🌟 Overall Ennoble Fitment</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in overall_fit.lower() else ('no' if 'low' in overall_fit.lower() else 'unknown') }}" style="font-weight:700;">
@@ -390,7 +627,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set stem_fit = pfit.get('STEM Education') if pfit.get('STEM Education') and pfit.get('STEM Education') != 'Not Evident' else ('High Fit' if 'education' in (c.company_name ~ ' ' ~ research.get('company_csr_focus', ''))|lower else 'Medium Fit') %}
+                                                    {% set stem_fit = pfit.get('STEM Education', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">🔬 STEM Education</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in stem_fit.lower() else ('no' if 'low' in stem_fit.lower() else 'unknown') }}">
@@ -398,7 +635,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set infra_fit = pfit.get('School Infrastructure Transformation') if pfit.get('School Infrastructure Transformation') and pfit.get('School Infrastructure Transformation') != 'Not Evident' else 'Medium Fit' %}
+                                                    {% set infra_fit = pfit.get('School Infrastructure Transformation', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">🏫 School Infra Transformation</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in infra_fit.lower() else ('no' if 'low' in infra_fit.lower() else 'unknown') }}">
@@ -406,7 +643,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set holistic_fit = pfit.get('Holistic School Transformation') if pfit.get('Holistic School Transformation') and pfit.get('Holistic School Transformation') != 'Not Evident' else 'High Fit' %}
+                                                    {% set holistic_fit = pfit.get('Holistic School Transformation', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">🔄 Holistic School Transformation</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in holistic_fit.lower() else ('no' if 'low' in holistic_fit.lower() else 'unknown') }}">
@@ -414,7 +651,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set anganwadi_fit = pfit.get('Anganwadi Transformation') if pfit.get('Anganwadi Transformation') and pfit.get('Anganwadi Transformation') != 'Not Evident' else 'Low Fit' %}
+                                                    {% set anganwadi_fit = pfit.get('Anganwadi Transformation', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">🌱 Anganwadi Transformation</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in anganwadi_fit.lower() else ('no' if 'low' in anganwadi_fit.lower() else 'unknown') }}">
@@ -422,7 +659,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set quality_fit = pfit.get('Quality Education') if pfit.get('Quality Education') and pfit.get('Quality Education') != 'Not Evident' else 'High Fit' %}
+                                                    {% set quality_fit = pfit.get('Quality Education', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">📚 Quality Education</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in quality_fit.lower() else ('no' if 'low' in quality_fit.lower() else 'unknown') }}">
@@ -430,7 +667,7 @@
                                                         </span>
                                                     </div>
 
-                                                    {% set model_fit = pfit.get('Model School Transformation') if pfit.get('Model School Transformation') and pfit.get('Model School Transformation') != 'Not Evident' else 'Medium Fit' %}
+                                                    {% set model_fit = pfit.get('Model School Transformation', 'Not Evident') %}
                                                     <div class="csr-program-item">
                                                         <span class="csr-program-label">🏛️ Model School Transformation</span>
                                                         <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in model_fit.lower() else ('no' if 'low' in model_fit.lower() else 'unknown') }}">
@@ -439,6 +676,7 @@
                                                     </div>
 
                                                 </div>
+                                                {% endif %}
                                             </div>
                                             <!-- ── Ennoble Program Fitment END ── -->
 
@@ -600,7 +838,7 @@
                                             <div class="detail-field">
                                                 <strong>Lead Owner:</strong>
                                                 <input type="text" class="form-input"
-                                                    value="{{ crm.get('lead_owner') or '' }}"
+                                                    value="{{ crm.get('lead_owner') or username or '' }}"
                                                     onchange="updateLeadOwner('{{ c.id_str }}', this.value)"
                                                     placeholder="Enter Lead Owner name">
                                             </div>
