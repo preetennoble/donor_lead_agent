@@ -3,6 +3,8 @@ import json
 import os
 from dotenv import load_dotenv
 from models import CompanyResearch
+from error_utils import classify_error
+from llm_service import call_llm_safe
 
 load_dotenv()
 
@@ -19,7 +21,11 @@ def _normalize_optional_text(value):
     return str(value)
 
 
-def extract_research_with_contact(company_name: str, sources: list) -> CompanyResearch:
+def extract_research_with_contact(company_name: str, sources: list):
+    """Returns (CompanyResearch, error_or_None). error is set only when the LLM API
+    call itself failed (network/auth/rate-limit/etc) - not when the model simply
+    returned sparse "Not Found" fields, so callers can tell "the extraction service
+    broke" apart from "genuinely nothing to extract"."""
     # Dual support: OpenAI gpt-4o-mini if OPENAI_API_KEY is set, else Groq llama-3.3-70b-versatile.
     # Decided up front because the two providers have very different per-request token budgets:
     # Groq's llama-3.3-70b-versatile is capped at 12,000 TPM on the on-demand tier, so a request
@@ -52,6 +58,20 @@ RESEARCH CHECKLIST (per the Ennoble Lead Fitment Guidelines - check each explici
 - Previous Projects on Education: Has the company supported education-related projects earlier, and for how long?
 - Company Foundation: Is there a foundation route for partnership?
 - Existing Implementation Partners: Does the company already work with NGOs/implementation partners? Name them and count them if disclosed.
+- Geography: Where does the company's CSR work actually happen? Look for city/state HQ AND the
+  district(s)/state(s) where CSR programs run or beneficiaries are located (these can differ from
+  the HQ). If multiple states/districts are named for CSR program activity, that is a WIDER
+  geographic footprint - note this explicitly, since it directly sets "geographical_priority" below.
+
+GEOGRAPHY FIELD RULES:
+- "city"/"state": company HQ city/state, OR the CSR-relevant operating city/state if that's what the text discusses.
+- "program_district_state": the specific district(s)/state(s) named for CSR program activity/beneficiaries
+  (e.g. "Pune, Maharashtra; Bengaluru, Karnataka"). List all named locations, semicolon-separated.
+- "geographical_priority": based purely on breadth of CSR presence found in the text (NOT compared to
+  any specific target region):
+    "High"   = CSR programs are named across 3+ distinct states/districts, OR described as pan-India/nationwide.
+    "Medium" = CSR programs are named in 2 states/districts.
+    "Low"    = only 1 location is named, or no program-location information is found at all.
 
 CONTACT PERSON RULES:
 - Identify the most relevant CSR, Sustainability, Foundation, ESG, Corporate Affairs, HR, or Leadership contact.
@@ -81,12 +101,12 @@ Return ONLY valid JSON in this exact structure, nothing else:
   "avg_ticket_size": "...",
   "previous_education_projects": "...",
   "duration_past_projects": "...",
-  "csr_school_infra_transformation": "Yes/No/Not Found - Does company do CSR for School Infrastructure Transformation?",
-  "csr_holistic_transformation": "Yes/No/Not Found - Does company do CSR for Holistic School Transformation?",
-  "csr_anganwadi_transformation": "Yes/No/Not Found - Does company do CSR for Anganwadi Transformation?",
-  "csr_quality_education": "Yes/No/Not Found - Does company do CSR for Quality Education?",
-  "csr_stem_education": "Yes/No/Not Found - Does company do CSR for STEM / science / digital learning?",
-  "csr_model_school_transformation": "Yes/No/Not Found - Does company do CSR for Model School / district-level transformation?",
+  "csr_school_infra_transformation": "Yes/No/Not Found - Does company support School Infrastructure (classrooms, sanitation, drinking water, building repair)?",
+  "csr_holistic_transformation": "Yes/No/Not Found - Does company support Holistic/Whole School Transformation or comprehensive school development?",
+  "csr_anganwadi_transformation": "Yes/No/Not Found - Does company support Anganwadi, early childhood care, pre-schools, or maternal/child nutrition?",
+  "csr_quality_education": "Yes/No/Not Found - Does company support Quality Education (general education, teacher training, scholarships, literacy, learning outcomes)?",
+  "csr_stem_education": "Yes/No/Not Found - Does company support STEM, science labs, computer labs, robotics, digital learning, or coding?",
+  "csr_model_school_transformation": "Yes/No/Not Found - Does company support Model Schools, government school upgrades, or district-level education?",
   "contact": {{
     "first_name": "...",
     "last_name": "...",
@@ -104,43 +124,8 @@ TEXT EXCERPTS:
 {combined_text[:source_text_char_limit]}
 """
 
-    if openai_key:
-        print(f"[LLM] Querying OpenAI (gpt-4o-mini) for {company_name}...")
-        headers = {
-            "Authorization": f"Bearer {openai_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-            "response_format": {"type": "json_object"}
-        }
-        endpoint = "https://api.openai.com/v1/chat/completions"
-    elif api_key:
-        print(f"[Groq] Querying Groq (llama-3.3-70b-versatile) for {company_name}...")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-            "response_format": {"type": "json_object"}
-        }
-        endpoint = "https://api.groq.com/openai/v1/chat/completions"
-    else:
-        raise ValueError("Neither Groq API key nor OpenAI API Key found in environment!")
-
-    try:
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        response_json = response.json()
-        raw_output = response_json["choices"][0]["message"]["content"].strip()
-        data = json.loads(raw_output)
-    except Exception as e:
-        print(f"[LLM Error] Extraction API failed for {company_name}: {e}")
+    data, llm_error = call_llm_safe(prompt, json_mode=True, timeout=60)
+    if not isinstance(data, dict):
         data = {}
 
     data["source_url"] = "; ".join([s["url"] for s in sources[:5] if s.get("url")]) or "Not Found"
@@ -184,4 +169,4 @@ TEXT EXCERPTS:
         data.get("num_implementation_partners")
     )
 
-    return CompanyResearch(**data)
+    return CompanyResearch(**data), llm_error

@@ -5,19 +5,26 @@ from dotenv import load_dotenv
 from db import get_company, update_company
 from audit_logger import log_action
 from fitment_agents import decide_record_stage
+from error_utils import classify_error
+from llm_service import call_llm_safe
 load_dotenv()
 
 WEIGHTS = {
-    "education_focus": 20,
-    "spend_capacity": 20,
-    "geography_match": 15,
-    "strategic_fit": 15,
-    "decision_maker_access": 10,
-    "urgency_signal": 10,
-    "governance_quality": 5,
-    "warm_connection": 5,
+    "education_focus": 30,
+    "spend_capacity": 30,
+    "geography_match": 20,
+    "strategic_fit": 20,
+    "decision_maker_access": 0,
+    "urgency_signal": 0,
+    "governance_quality": 0,
+    "warm_connection": 0,
 }
-
+# WEIGHTS_NO_FINANCIALS = {
+#     "education_focus": 60,   # Absorbs spend_capacity weight
+#     "spend_capacity": 0,
+#     "geography_match": 20,
+#     "strategic_fit": 20,
+# }
 
 PROGRAMS = [
     "STEM Education",
@@ -28,7 +35,9 @@ PROGRAMS = [
     "Model School Transformation"
 ]
 
-def rate_factors(research_json: dict) -> dict:
+def rate_factors(research_json: dict):
+    """Returns (ratings_dict, error_or_None). error set only when the LLM call itself
+    failed (rate limit/auth/network/etc), not when it just rated things low."""
     prompt = f"""Rate each factor below from 0.0 to 1.0 based ONLY on the company research data below.
 Give a one-line reason for each rating. Return ONLY JSON, nothing else.
 
@@ -39,6 +48,12 @@ STRICT GROUNDING RULES:
   rate that factor low (0.0-0.2) and say so in the reason (e.g. "No spend data found").
 - Only rate above 0.5 if the data explicitly supports it.
 
+GEOGRAPHY_MATCH RULE (based on "geographical_priority" and "program_district_state" fields):
+- This is a BROAD India-wide CSR-presence check, not a match against any specific target region.
+- geographical_priority "High" (3+ states/districts, or pan-India) -> rate 0.8-1.0.
+- geographical_priority "Medium" (2 states/districts) -> rate 0.4-0.6.
+- geographical_priority "Low" or program_district_state empty/"Not Found" -> rate 0.0-0.2.
+
 Research data:
 {json.dumps(research_json)}
 
@@ -48,28 +63,10 @@ decision_maker_access, urgency_signal, governance_quality, warm_connection
 Return format:
 {{"education_focus": {{"rating": 0.0, "reason": "..."}}, ...}}
 """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    api_key = (os.getenv("qroq_api") or os.getenv("GROQ_API_KEY") or "").strip().strip('"').strip("'")
-
-    if openai_key:
-        headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
-        payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "response_format": {"type": "json_object"}}
-        endpoint = "https://api.openai.com/v1/chat/completions"
-    elif api_key:
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "response_format": {"type": "json_object"}}
-        endpoint = "https://api.groq.com/openai/v1/chat/completions"
-    else:
-        return {}
-
-    try:
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"].strip()
-        return json.loads(raw)
-    except Exception as e:
-        print(f"[Scoring Error] {e}")
-        return {}
+    data, err = call_llm_safe(prompt, json_mode=True, timeout=60)
+    if err:
+        return {}, err
+    return data, None
 
 
 _NOT_FOUND_VALUES = {"", "not found", "not publicly available", "none", "n/a", "na"}
@@ -86,12 +83,12 @@ _PROGRAM_FLAG_FIELD = {
 }
 
 _PROGRAM_KEYWORDS = {
-    "STEM Education": (["stem", "science lab", "digital learning", "computer lab", "coding"], ["technology", "innovation lab"]),
-    "School Infrastructure Transformation": (["school infrastructure", "sanitation", "classroom renovation", "school building", "infrastructure"], ["renovation", "water", "building"]),
-    "Holistic School Transformation": (["holistic school", "whole school transformation", "school transformation"], ["school development"]),
-    "Anganwadi Transformation": (["anganwadi", "early childhood", "preschool", "maternal health"], ["nutrition"]),
-    "Quality Education": (["quality education", "teacher training", "learning outcome", "literacy program"], ["learning", "education"]),
-    "Model School Transformation": (["model school", "district-level education", "district level education"], ["state-wide education", "district"]),
+    "STEM Education": (["stem", "science lab", "digital learning", "computer lab", "coding", "robotics", "digital literacy", "smart class", "ai lab"], ["technology", "innovation lab", "computer", "science"]),
+    "School Infrastructure Transformation": (["school infrastructure", "sanitation", "classroom renovation", "school building", "infrastructure", "drinking water", "toilets", "school building", "classrooms"], ["renovation", "water", "building", "solar school"]),
+    "Holistic School Transformation": (["holistic school", "whole school transformation", "school transformation", "school development", "adopt school", "school adoption"], ["school development", "holistic development", "child development"]),
+    "Anganwadi Transformation": (["anganwadi", "early childhood", "preschool", "maternal health", "balwadi", "early learning"], ["nutrition", "child care", "pre-primary"]),
+    "Quality Education": (["quality education", "teacher training", "learning outcome", "literacy program", "scholarship", "foundational learning", "remedial education", "education support"], ["learning", "education", "literacy", "scholarship", "schools", "students", "academic"]),
+    "Model School Transformation": (["model school", "district-level education", "district level education", "government school upgrade", "hub school"], ["state-wide education", "district", "cluster school"]),
 }
 
 
@@ -137,19 +134,21 @@ def compute_fallback_program_fitment(research_json: dict) -> dict:
     return result
 
 
-def rate_program_fitment(research_json: dict) -> dict:
+def rate_program_fitment(research_json: dict):
+    """Returns (fitment_dict, error_or_None). error set only when the LLM call itself
+    failed - the fallback keyword-based fitment is still returned/used either way."""
     fallback = compute_fallback_program_fitment(research_json)
     prompt = f"""Based ONLY on this company's CSR focus, thematic focus, past education projects, and spending
 as given in the Research Data below - do not use prior/general knowledge about this company from
 training - determine fitment (High Fit, Medium Fit, Low Fit, or Not Evident) for each Ennoble program.
 If the research data has no evidence at all for a program, mark it "Not Evident" rather than guessing.
 
-- STEM Education: Is there a possible STEM / science / digital learning fit?
-- School Infrastructure Transformation: Is there school infrastructure, sanitation, or building relevance?
-- Holistic School Transformation: Is there scope for full-school transformation or whole school development?
-- Anganwadi Transformation: Is there early childhood / Anganwadi relevance?
-- Quality Education: Is there education quality, teacher training, or learning outcome relevance?
-- Model School Transformation: Is there a possibility for a model school or district-level approach?
+- STEM Education: Is there a STEM, science labs, computer labs, robotics, coding, or digital learning fit?
+- School Infrastructure Transformation: Is there school infrastructure, sanitation, toilets, drinking water, classrooms, or school building relevance?
+- Holistic School Transformation: Is there scope for whole-school development, school adoption, or comprehensive school transformation?
+- Anganwadi Transformation: Is there early childhood education, Anganwadi center, pre-school, or maternal/child nutrition relevance?
+- Quality Education: Is there general education, quality education, teacher training, scholarships, literacy, or learning outcome relevance?
+- Model School Transformation: Is there a possibility for a model school, government school upgrade, or district/cluster-level approach?
 
 Research Data:
 {json.dumps(research_json)}
@@ -164,33 +163,14 @@ Return ONLY JSON in this format:
   "Model School Transformation": "High Fit / Medium Fit / Low Fit / Not Evident"
 }}
 """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    api_key = (os.getenv("qroq_api") or os.getenv("GROQ_API_KEY") or "").strip().strip('"').strip("'")
-
-    if openai_key:
-        headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
-        payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "response_format": {"type": "json_object"}}
-        endpoint = "https://api.openai.com/v1/chat/completions"
-    elif api_key:
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0, "response_format": {"type": "json_object"}}
-        endpoint = "https://api.groq.com/openai/v1/chat/completions"
-    else:
-        return fallback
-
-    try:
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=20)
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"].strip()
-        data = json.loads(raw)
-        # Merge with fallback if any key is missing or Not Evident
-        for k, v in fallback.items():
-            if k not in data or data[k] == "Not Evident":
-                data[k] = v
-        return data
-    except Exception as e:
-        print(f"[Program Fitment Error] {e}")
-        return fallback
+    data, err = call_llm_safe(prompt, json_mode=True, timeout=60)
+    if err:
+        return fallback, err
+    # Merge with fallback if any key is missing or Not Evident
+    for k, v in fallback.items():
+        if k not in data or data[k] == "Not Evident":
+            data[k] = v
+    return data, None
 
 
 def calculate_final_score(ratings: dict) -> int:
@@ -243,66 +223,71 @@ def best_program_name(program_fit: dict):
     return max(labels, key=lambda k: _FIT_RANK.get(labels[k], 0))
 
 
-def assign_category(research: dict, program_fit: dict):
-    """Tier A/B/C per prompt 'Category Rules' — based on CSR partnership potential
-    (rupee signal) combined with education/program alignment. Returns (category, reasoning)
-    so the exact numbers/signals that drove the decision can be shown, not just the result."""
-    # Strongest available rupee signal of partnership potential.
-    potential = None
-    spend_field = None
-    for field in ("education_csr_spend", "unspent_csr_amount", "csr_spend_previous_fy"):
-        value = parse_crore(research.get(field, ""))
-        if value is not None:
-            potential, spend_field = value, field
-            break
+# Tier A/B/C bands over the 0-100 weighted score (calculate_final_score).
+# Contiguous, no gaps: A >= 65, B 30-64, C < 30.
+TIER_A_MIN = 65
+TIER_B_MIN = 25
 
-    best_fit = best_program_fit(program_fit)
-    best_program = best_program_name(program_fit)
-    fit_note = f"{best_program} ({best_fit})" if best_program else "no program fit evidence"
-    spend_note = (
-        f"an estimated Rs.{potential:g} Cr in CSR partnership potential ({spend_field.replace('_', ' ')})"
-        if potential is not None else "no verified CSR spend figure"
-    )
 
-    if potential is not None:
-        if potential >= 3 and best_fit == "High Fit":
-            return "Tier A", f"{spend_note[0].upper()}{spend_note[1:]}, plus a strong program match ({fit_note}), clears the Tier A bar (>=Rs.3 Cr + High Fit)."
-        if potential >= 1 and best_fit in ("High Fit", "Medium Fit"):
-            return "Tier B", f"{spend_note[0].upper()}{spend_note[1:]}, plus {fit_note}, meets the Tier B bar (Rs.1-3 Cr + Medium/High Fit)."
-        if potential < 1:
-            return "Tier C", f"{spend_note[0].upper()}{spend_note[1:]} is below Rs.1 Cr, so it's Tier C regardless of program fit ({fit_note})."
-        # >= 1 Cr but weak fit
-        if potential >= 3:
-            return "Tier B", f"{spend_note[0].upper()}{spend_note[1:]} clears Rs.3 Cr, but {fit_note} is too weak for Tier A, so it's capped at Tier B."
-        return "Tier C", f"{spend_note[0].upper()}{spend_note[1:]} is Rs.1-3 Cr, but {fit_note} is too weak to qualify for Tier B."
+def assign_category(final_score: int):
+    """Tier A/B/C purely from the 0-100 weighted score.
 
-    # No rupee signal: fall back to program fit strength only (cannot confirm ₹3 Cr -> not Tier A)
-    if best_fit == "High Fit":
-        return "Tier B", f"No verified CSR spend figure was found, but {fit_note} is strong enough for Tier B - it's capped there without a confirmed >=Rs.3 Cr signal for Tier A."
-    if best_fit == "Medium Fit":
-        return "Tier C", f"No verified CSR spend figure was found, and only {fit_note} - Tier C until spend data can be confirmed."
-    return "Tier C", f"No verified CSR spend figure was found and {fit_note}, so this defaults to Tier C."
+    Bands (contiguous, gap-free):
+        Tier A: score >= 65
+        Tier B: 30 <= score <= 64
+        Tier C: score < 30
+
+    Returns (category, reasoning) so the score that drove the tier is shown."""
+    score = final_score if final_score is not None else 0
+
+    if score >= TIER_A_MIN:
+        return "Tier A", f"Score {score}/100 is >= {TIER_A_MIN}, so it clears the Tier A bar."
+    if score >= TIER_B_MIN:
+        return "Tier B", f"Score {score}/100 is in the {TIER_B_MIN}-{TIER_A_MIN - 1} range, so it's Tier B."
+    return "Tier C", f"Score {score}/100 is below {TIER_B_MIN}, so it's Tier C."
 
 
 def score_company(company_id: str):
     company = get_company(company_id)
     research = company.get("research_json", {})
-    ratings = rate_factors(research)
+    ratings, ratings_error = rate_factors(research)
 
-    # Internal priority hint only — NOT shown as Ennoble Fitment (per prompt/doc, fitment is categorical).
+    # Hard financial prospect check (financial_extractor.check_prospect_criteria,
+    # OR logic over turnover/net worth/net profit) overrides the LLM's qualitative
+    # spend_capacity guess with full marks when it's met - real Screener numbers
+    # beat a text-based guess. When it's not met, the LLM rating stands as-is.
+    if company.get("is_prospect"):
+        ratings = dict(ratings)
+        ratings["spend_capacity"] = {
+            "rating": 1.0,
+            "reason": "Meets the hard financial prospect criteria (net worth >= Rs 500 Cr AND net profit >= "
+                      "Rs 5 Cr, OR turnover >= Rs 1000 Cr) from Screener data - full marks awarded over the "
+                      "qualitative signal.",
+        }
+
+    # Weighted 0-100 score; ye ab tier (A/B/C) bhi decide karta hai.
+    # NOTE: agar ratings_error set hai (jaise LLM rate-limited), to ratings={} aur
+    # final_score 0 aa sakta hai - jo ek REAL 0-score se distinguish nahi hota
+    # sirf final_score dekh ke. Isliye ye error ko alag se save karte hain, taaki
+    # "Tier C" dikhne wali company actually rate-limit ki wajah se unrated ho, is
+    # baat ka pata frontend/reviewer ko chal sake.
     final_score = calculate_final_score(ratings)
 
-    program_fit = rate_program_fitment(research)
+    program_fit, fitment_error = rate_program_fitment(research)
 
-    # Category (Tier A/B/C) per prompt 'Category Rules', plus a short explanation of
-    # exactly which spend figure and program fit drove the decision.
-    category, tier_reasoning = assign_category(research, program_fit)
+    # Category (Tier A/B/C) directly from the 0-100 score band (A>=85, B 30-84, C<30).
+    category, tier_reasoning = assign_category(final_score)
 
     # Ennoble Fitment = strongest overall program fit (prompt + guidelines).
     program_fit["Ennoble Fitment"] = best_program_fit(program_fit)
 
     # Guidelines fit-check: decide the record stage (Prospect / Nurture / Enriched Data / Disqualified).
     decision = decide_record_stage(research, program_fit)
+
+    # Pehla error jo mila (factor rating ya program fitment) - scoring_error field
+    # mein save karte hain taaki caller/frontend "yeh score API failure ki wajah
+    # se incomplete hai" dikha sake, "genuinely low score" ki jagah.
+    scoring_error = ratings_error or fitment_error
 
     update_company(company_id, {
         "score": final_score,               # internal hint only
@@ -314,11 +299,13 @@ def score_company(company_id: str):
         "record_stage": decision.record_stage,
         "fitment_reasoning": decision.reasoning,
         "fitment_checklist": decision.checklist,
-        "status": "scored"
+        "status": "scored",
+        "scoring_error": scoring_error,
     })
 
     log_action(company_id, "scoring_completed", "ScoringAgent",
-               details=f"stage={decision.record_stage}; category={category}; score={final_score}")
+               details=f"stage={decision.record_stage}; category={category}; score={final_score}"
+                       + (f"; WARNING: {scoring_error['message']}" if scoring_error else ""))
 
     return {
         "score": final_score,
@@ -328,4 +315,5 @@ def score_company(company_id: str):
         "record_stage": decision.record_stage,
         "reasoning": ratings,
         "program_fitment": program_fit,
+        "scoring_error": scoring_error,
     }

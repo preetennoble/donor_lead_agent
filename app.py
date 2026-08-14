@@ -1,13 +1,18 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file, session, abort
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from logger import logger
 import csv
 import io
 import os
 import threading
+import uuid
+from urllib.parse import urlparse
 from datetime import datetime
 from bson import ObjectId
 
 from db import (
-    get_all_companies, get_company, update_company, create_company, delete_company, companies_col,
+    get_all_companies, get_company, update_company, create_company, delete_company, delete_companies, companies_col,
     create_user, get_user_by_username, get_user_by_id, get_all_users, update_user
 )
 from auth import hash_password, verify_password, generate_random_password, login_required, admin_required
@@ -25,17 +30,38 @@ from warm_connect_agent import find_warm_connect, recommend_outreach_channel
 from message_drafting_agent import draft_outreach_message
 from meeting_brief_agent import generate_meeting_brief
 from research_agent import research_company_with_financials
+from error_utils import classify_error
+from llm_service import start_tracking, get_tracked_usage
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
 if not app.secret_key:
     raise RuntimeError("SECRET_KEY is not set in .env")
+app.logger.handlers = logger.handlers
+app.logger.setLevel(logger.level)
 
+def get_rate_limit_key():
+    """Rate limit by logged-in username if available, otherwise by client IP address."""
+    return session.get('username') or get_remote_address()
+
+limiter = Limiter(
+    key_func=get_rate_limit_key,
+    app=app,
+    default_limits=["200 per day", "50 per hour", "15 per 10 minutes"],
+    storage_uri="memory://",
+)
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        "status": "error",
+        "message":f"Rate limit exceeded:{e.description}. Please wait before trying again."
+    }), 429
 
 @app.template_filter("commas")
 def format_with_commas(value):
-    """Numeric figures ko comma-separated dikhata hai, e.g. 1234.5 -> '1,234.5'."""
-    if value is None or value == "-":
+    """Numeric figures ko comma-separated dikhata hai, e.g. 1234.5 -> '1,234.5', 0.535 -> '0.535'."""
+    if value is None or value == "" or value == "-":
         return "-"
     try:
         num = float(value)
@@ -43,10 +69,33 @@ def format_with_commas(value):
         return value
     if num == int(num):
         return f"{int(num):,}"
-    return f"{num:,.2f}"
+    # Preserve exact decimal digits (e.g. 0.535 -> '0.535') without dropping precision
+    return f"{num:,.4f}".rstrip("0").rstrip(".")
+
+@app.template_filter("source_name")
+def format_source_name(url):
+    """URL se readable source name nikalta hai, e.g. https://www.tcs.com/newsroom/... -> tcs.com"""
+    try:
+        netloc = urlparse(url).netloc or url
+        return netloc[4:] if netloc.startswith("www.") else netloc
+    except Exception:
+        return url
 
 pipeline_jobs = {}
 pipeline_jobs_lock = threading.Lock()
+
+zoho_bulk_jobs = {}
+zoho_bulk_jobs_lock = threading.Lock()
+MAX_ZOHO_BULK = 50
+
+# Caps how many companies' pipelines actually run (i.e. fire search/LLM calls) at
+# once, regardless of how many were queued via bulk CSV upload. Each pipeline
+# thread still starts immediately so progress tracking/UX is unaffected, but
+# real work blocks on this until a slot frees up - without it, a bulk upload of
+# N companies fires N companies' worth of concurrent Tavily searches at once,
+# which blows through Tavily's rate limit even with the per-call semaphore in
+# search_tool.py (that one only caps instantaneous concurrency, not sustained rate).
+_pipeline_concurrency = threading.Semaphore(3)
 
 
 def set_pipeline_progress(company_id, stage, message, state="running", percent=0):
@@ -62,11 +111,24 @@ def set_pipeline_progress(company_id, stage, message, state="running", percent=0
 
 def run_company_pipeline(company_id, company_name, website):
     """Run the existing pipeline in the background and report safe stage updates."""
+    start_tracking()
+    # Blocks here (not before the thread starts) so bulk-uploaded companies still
+    # show up immediately with a "queued" status, but only _pipeline_concurrency
+    # many of them actually fire search/LLM calls at once - see the semaphore's
+    # definition above for why this is needed.
+    set_pipeline_progress(company_id, "queued", "Waiting for a free pipeline slot...", percent=8)
+    _pipeline_concurrency.acquire()
     try:
         set_pipeline_progress(company_id, "research", "Researching public company and CSR information.", percent=20)
         research = research_company(company_id, company_name, website)
         if not research:
-            set_pipeline_progress(company_id, "research", "Research could not return enough information.", "error", 100)
+            # research_company() saves the real cause (API/DB/network failure vs.
+            # genuinely no data) as "last_error" on the company doc - surface that
+            # instead of a generic "not found" message.
+            company_doc = get_company(company_id) or {}
+            cause = company_doc.get("last_error") or {}
+            message = cause.get("message", "Research could not return enough information.")
+            set_pipeline_progress(company_id, "research", message, "error", 100)
             return
 
         set_pipeline_progress(company_id, "financials", "Pulling turnover/PBT from Screener and calculating CSR budget.", percent=35)
@@ -89,16 +151,54 @@ def run_company_pipeline(company_id, company_name, website):
             set_pipeline_progress(company_id, "contacts", "Finding relevant decision-makers for this Prospect lead.", percent=90)
             find_decision_makers_apollo(company_name, website)
 
-        set_pipeline_progress(company_id, "complete", "Pipeline complete. The lead is ready for review.", "complete", 100)
+        # Har stage apna khud ka error field save karta hai (last_error,
+        # financial_last_error, csr_extraction_error, scoring_error) - yahan sabko
+        # ek jagah collect karte hain taaki dashboard par ek hi "pipeline_warnings"
+        # list se pata chale ki pipeline "complete" hone ke baavjood kahin data
+        # API/rate-limit ki wajah se incomplete/degraded to nahi hai.
+        company_doc = get_company(company_id) or {}
+        warning_fields = [
+            ("last_error", "Research"),
+            ("financial_last_error", "Financials"),
+            ("csr_extraction_error", "CSR extraction"),
+            ("scoring_error", "Scoring"),
+        ]
+        warnings = []
+        for field, label in warning_fields:
+            err = company_doc.get(field)
+            if err:
+                warnings.append({"stage": label, "type": err.get("type"), "message": err.get("message")})
+        update_company(company_id, {"pipeline_warnings": warnings})
+
+        if warnings:
+            summary = "; ".join(f"{w['stage']}: {w['message']}" for w in warnings)
+            complete_message = f"Pipeline complete, but some steps had issues - data may be incomplete. {summary}"
+        else:
+            complete_message = "Pipeline complete. The lead is ready for review."
+
+        set_pipeline_progress(company_id, "complete", complete_message, "complete", 100)
     except Exception as error:
         print(f"[Pipeline Error] {company_name}: {error}")
-        set_pipeline_progress(company_id, "error", "The pipeline stopped unexpectedly. Check the server log for details.", "error", 100)
+        cause = classify_error(error)
+        set_pipeline_progress(company_id, "error", cause["message"], "error", 100)
+    finally:
+        usage = get_tracked_usage()
+        if usage and usage["calls"]:
+            update_company(company_id, {"token_usage_estimate": usage})
+            print(
+                f"[Token Usage] {company_name}: {usage['total_tokens']} tokens total "
+                f"({usage['prompt_tokens']} prompt + {usage['completion_tokens']} completion) "
+                f"across {usage['calls']} LLM calls"
+            )
+        _pipeline_concurrency.release()
 
 @app.route("/", methods=["GET"])
 @login_required
 def dashboard():
     try:
-        companies = get_all_companies()
+        username = session.get("username")
+        role = session.get("role")
+        companies = get_all_companies(username=username, role=role)
         db_error = None
     except Exception as e:
         companies = []
@@ -107,6 +207,13 @@ def dashboard():
 
     for c in companies:
         c["id_str"] = str(c["_id"])
+        # Ensure all template-accessed keys have safe defaults to prevent UndefinedError
+        if "score" not in c:
+            c["score"] = None
+        if "tier" not in c:
+            c["tier"] = None
+        if "status" not in c:
+            c["status"] = "pending"
         
     return render_template(
         "index.html",
@@ -114,11 +221,38 @@ def dashboard():
         count=len(companies),
         db_error=db_error,
         role=session.get("role"),
-        username=session.get("username")
+        username=session.get("username"),
+        active_nav="dashboard",
+        impersonating=session.get("impersonated_by"),
     )
+
+@app.route("/company/<company_id>", methods=["GET"])
+@login_required
+def company_detail(company_id):
+    c = get_company(company_id)
+    if not c:
+        abort(404)
+    c["id_str"] = str(c["_id"])
+    # Ensure all template-accessed keys have safe defaults to prevent UndefinedError
+    if "score" not in c:
+        c["score"] = None
+    if "tier" not in c:
+        c["tier"] = None
+    if "status" not in c:
+        c["status"] = "pending"
+    return render_template(
+        "company_detail.html",
+        c=c,
+        role=session.get("role"),
+        username=session.get("username"),
+        active_nav="dashboard",
+        impersonating=session.get("impersonated_by"),
+    )
+
 
 @app.route("/research", methods=["POST"])
 @login_required
+@limiter.limit("5 per minute; 30 per hour")
 def add_company():
     company_name = request.form.get("company_name", "").strip()
     website = request.form.get("website", "").strip() or None
@@ -140,6 +274,7 @@ MAX_BULK_ROWS = 200
 
 @app.route("/research/financial", methods=["POST"])
 @login_required
+@limiter.limit("5 per minute; 30 per hour")
 def research_financial():
     """
     Company ka financial research start karne ke liye
@@ -170,6 +305,7 @@ def research_financial():
 
 @app.route("/research-bulk", methods=["POST"])
 @login_required
+@limiter.limit("2 per minute")
 def add_companies_bulk():
     upload = request.files.get("csv_file")
     if not upload or not upload.filename:
@@ -226,6 +362,7 @@ def add_companies_bulk():
 
 @app.route("/research-progress/<company_id>", methods=["GET"])
 @login_required
+@limiter.exempt
 def research_progress(company_id):
     with pipeline_jobs_lock:
         progress = pipeline_jobs.get(company_id)
@@ -251,6 +388,17 @@ def remove_company(company_id):
     delete_company(company_id)
     return redirect(url_for("dashboard"))
 
+
+@app.route("/delete-bulk", methods=["POST"])
+@login_required
+def remove_companies_bulk():
+    payload = request.get_json(silent=True) or {}
+    company_ids = payload.get("company_ids") or []
+    if not isinstance(company_ids, list) or not company_ids:
+        return jsonify({"message": "No companies selected."}), 400
+    deleted = delete_companies(company_ids)
+    return jsonify({"deleted": deleted, "requested": len(company_ids)})
+
 # Zoho CRM integration is commented out/disabled as per user request
 @app.route("/upload-crm/<company_id>", methods=["POST"])
 @login_required
@@ -259,11 +407,79 @@ def upload_crm(company_id):
     update_company(company_id, {"crm_uploaded_by": session.get("username")})
     return redirect(url_for("dashboard"))
 
+
+def run_bulk_zoho_upload(job_id, company_ids, uploaded_by):
+    """Sequentially uploads each company to Zoho (same per-record call/duplicate-check
+    as the single upload) and records per-company results for the progress poller."""
+    with zoho_bulk_jobs_lock:
+        zoho_bulk_jobs[job_id] = {
+            "state": "running", "total": len(company_ids),
+            "completed": 0, "succeeded": 0, "failed": 0, "results": [],
+        }
+
+    for company_id in company_ids:
+        company = get_company(company_id)
+        company_name = company.get("company_name") if company else company_id
+
+        if not company:
+            result = {"status": "error", "message": "Company not found in database"}
+        else:
+            result = upload_company_to_zoho(company_id)
+            if result.get("status") in ("success", "simulated"):
+                update_company(company_id, {"crm_uploaded_by": uploaded_by})
+
+        with zoho_bulk_jobs_lock:
+            job = zoho_bulk_jobs[job_id]
+            job["completed"] += 1
+            if result.get("status") in ("success", "simulated"):
+                job["succeeded"] += 1
+            else:
+                job["failed"] += 1
+            job["results"].append({
+                "company_id": company_id, "company_name": company_name,
+                "status": result.get("status"), "message": result.get("message"),
+            })
+
+    with zoho_bulk_jobs_lock:
+        zoho_bulk_jobs[job_id]["state"] = "complete"
+
+
+@app.route("/upload-crm-bulk", methods=["POST"])
+@login_required
+@limiter.limit("3 per minute")
+def upload_crm_bulk():
+    data = request.get_json(silent=True) or {}
+    company_ids = [cid for cid in (data.get("company_ids") or []) if cid]
+
+    if not company_ids:
+        return jsonify({"status": "error", "message": "No companies selected."}), 400
+    if len(company_ids) > MAX_ZOHO_BULK:
+        return jsonify({"status": "error", "message": f"Select at most {MAX_ZOHO_BULK} companies at a time."}), 400
+
+    job_id = str(uuid.uuid4())
+    threading.Thread(
+        target=run_bulk_zoho_upload, args=(job_id, company_ids, session.get("username")), daemon=True
+    ).start()
+    return jsonify({"status": "started", "job_id": job_id, "total": len(company_ids)}), 202
+
+
+@app.route("/upload-crm-bulk-progress/<job_id>", methods=["GET"])
+@login_required
+@limiter.exempt
+def upload_crm_bulk_progress(job_id):
+    with zoho_bulk_jobs_lock:
+        job = zoho_bulk_jobs.get(job_id)
+    if not job:
+        return jsonify({"status": "error", "message": "Job not found."}), 404
+    return jsonify(job)
+
 @app.route("/api/companies", methods=["GET"])
 @login_required
 def api_companies():
     try:
-        companies = get_all_companies()
+        username = session.get("username")
+        role = session.get("role")
+        companies = get_all_companies(username=username, role=role)
         for c in companies:
             c["_id"] = str(c["_id"])
         return jsonify(companies)
@@ -489,7 +705,10 @@ def admin_dashboard():
         "admin.html",
         users=users,
         employee_stats=employee_stats,
-        impersonating=session.get("impersonated_by")
+        impersonating=session.get("impersonated_by"),
+        role=session.get("role"),
+        username=session.get("username"),
+        active_nav="admin",
     )
 
 
@@ -511,7 +730,15 @@ def admin_create_user():
     users = get_all_users()
     for u in users:
         u["id_str"] = str(u["_id"])
-    return render_template("admin.html", users=users, new_username=username, new_password=temp_password)
+    return render_template(
+        "admin.html",
+        users=users,
+        new_username=username,
+        new_password=temp_password,
+        role=session.get("role"),
+        username=session.get("username"),
+        active_nav="admin",
+    )
 
 
 @app.route("/admin/users/<user_id>/toggle-active", methods=["POST"])
@@ -537,7 +764,15 @@ def admin_reset_password(user_id):
     for u in users:
         u["id_str"] = str(u["_id"])
     target = get_user_by_id(user_id)
-    return render_template("admin.html", users=users, new_username=target["username"], new_password=temp_password)
+    return render_template(
+        "admin.html",
+        users=users,
+        new_username=target["username"],
+        new_password=temp_password,
+        role=session.get("role"),
+        username=session.get("username"),
+        active_nav="admin",
+    )
 
 
 @app.route("/admin/impersonate/<user_id>", methods=["POST"])

@@ -13,25 +13,10 @@ INTERNAL_NETWORK = [
 
 ]
 
+from llm_service import call_llm
+
 def _call_groq(prompt: str) -> dict:
-    api_key = (os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key") or "").strip()
-    headers = {
-        "Authorization" : f"Bearer {api_key}",
-        "content-Type": "application/json"    
-    }
-    payload = {
-        "model" : "openai/gpt-oss-20b",
-        "messages" : [
-            {
-                "role": "user", "content": prompt
-            }
-        ],
-        "temperature": 0.0,
-        "response_format": {"type": "json_object"}
-    }
-    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
-    response.raise_for_status()
-    return json.loads(response.json()["choices"][0]["message"]["content"].strip())
+    return call_llm(prompt, json_mode=True)
 
 def find_warm_connect(company_name: str) -> WarmConnectSusggestion:
     """internal network me se koi match dhundta hai - suggestion only , kabhi confirm nhi karta"""

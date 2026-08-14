@@ -18,6 +18,15 @@ def map_to_zoho_lead(company_data: dict) -> dict:
     """
     research = company_data.get("research_json") or {}
     crm = company_data.get("crm") or {}
+    financial_data = company_data.get("financial_data") or {}
+
+    # Latest fiscal year's turnover -> Zoho's standard Annual_Revenue field.
+    # Sent as-is in Crores (not converted to rupees) - matches how the rest
+    # of this app displays financial figures, by team decision.
+    # Rest of financial_data (net worth, PBT, net profit, CSR spend) stays
+    # in Description until custom fields exist (blocked on Free Edition).
+    fiscal_years = financial_data.get("fiscal_years") or []
+    annual_revenue = (financial_data.get("turnover") or {}).get(fiscal_years[0]) if fiscal_years else None
 
     # Build CSR themes string
     thematic_focus = research.get("thematic_focus") or []
@@ -73,6 +82,8 @@ def map_to_zoho_lead(company_data: dict) -> dict:
         "Lead_Source": crm.get("lead_source") or "AI Research Agent",
         "Lead_Status": crm.get("lead_status") or "Open - Not Contacted",
     }
+    if annual_revenue is not None:
+        payload["Annual_Revenue"] = annual_revenue
 
     return payload
 

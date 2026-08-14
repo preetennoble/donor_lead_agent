@@ -8,18 +8,11 @@ from models import DraftedMessage
 load_dotenv()
 
 
+from llm_service import call_llm
+
+
 def _call_groq(prompt: str) -> dict:
-    api_key = (os.getenv("qroq_api") or os.getenv("GROQ_API_KEY") or "").strip()
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": "openai/gpt-oss-20b",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "response_format": {"type": "json_object"}
-    }
-    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
-    response.raise_for_status()
-    return json.loads(response.json()["choices"][0]["message"]["content"].strip())
+    return call_llm(prompt, json_mode=True, temperature=0.3)
 
 
 def draft_outreach_message(company: dict, channel: str = "email") -> DraftedMessage:

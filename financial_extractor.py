@@ -1,97 +1,102 @@
 import json
 import os
+import re
 from dotenv import load_dotenv
-from groq import Groq
+from error_utils import classify_error
+from llm_service import call_llm
 
 load_dotenv()
-
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 def extract_csr_data(pdf_text: str, company_name: str):
     """
     Annual report PDF text se CSR-specific qualitative data extract karna
-    (focus areas, committee, partners, beneficiaries, programs).
+    (focus areas, committee, partners, beneficiaries, programs, education spend breakdown).
 
     Turnover/PBT/Net Profit/Net Worth yahan se NAHI aate - wo Screener ke
     structured Profit & Loss / Balance Sheet tables se seedha nikalte hain
     (search_tool.get_financials_from_screener), kyunki annual report PDFs
     100-300+ pages ke hote hain aur financial statements usually bahut
     peeche hote hain - LLM ko sirf pehle kuch pages dena unreliable hai.
+
+    Returns (data_or_None, error_or_None) - error sirf tab set hota hai jab
+    Groq API call hi fail hui (jaise rate limit), taaki caller "genuinely
+    kuch nahi mila" aur "extraction service hi fail ho gayi" mein farak kar sake.
     """
 
     prompt = f"""
-    Annual report ke CSR Annexure / Board's Report section mein se {company_name}
-    ke CSR data ko extract karo:
+    From the CSR Annexure / Board's Report section of the annual report, extract the
+    CSR data for {company_name}:
 
-    1. CSR Focus Areas (list karo - STEAM, Anganwadi, Healthcare, Education, Skill Development, etc.)
+    1. CSR Focus Areas (list them - e.g. STEAM, Anganwadi, Healthcare, Education, Skill Development, etc.)
     2. CSR Committee Members (names)
     3. Implementation Partners (NGO names)
     4. Number of Beneficiaries
     5. Key CSR Programs
-    6. Total CSR Spend (in Crores, current/latest reported year) - IMPORTANT: ye
-       poori company ka CONSOLIDATED "Total Amount Spent for the Financial Year"
-       figure hona chahiye (jo Schedule VII / CSR Annexure compliance table mein
-       diya hota hai), NA ki kisi ek focus area, program, ya implementing agency
-       ka individual spend. Agar sirf ek program/area-wise breakup text mein mile
-       aur company-wide total kahin na mile, to csr_spend ko null rakho, kisi
-       chhoti sub-item value ko total mat maano.
-    7. CSR Spend Financial Year - ye csr_spend ka number jis financial year ka hai
-       (jaise "FY24" ya "FY 2023-24"), Annexure table mein usually report ke top
-       pe ya row label mein likha hota hai ("Financial Year" row/heading dekho).
-       IMPORTANT: "csr_spend_year" key JSON output mein HAMESHA include karo,
-       chahe value null ho - is key ko kabhi poori tarah mat chodo/omit mat karo.
-    8. CSR Unspent Amount (in Crores, current/latest reported year - "amount unspent"
-       ya "amount transferred to unspent CSR account" jaisa likha ho sakta hai)
-    9. Previous years ka CSR Spend (jitne saalon ka data table mein mile, usually 3 saal -
-       fiscal year label ke saath, jaise "FY23", "FY24", etc.). Ye CSR Annexure ke
-       "Details of CSR spent during the financial year" wale trend table mein mil sakta
-       hai, ya BRSR (Business Responsibility and Sustainability Report) section ke CSR
-       KPI mein bhi ho sakta hai - dono jagah check karo. Agar sirf current year ka
-       number mila aur koi multi-year comparison nahi mila, to ye field empty object
-       {{}} rakho - number ko galat saal se mat jodo. IMPORTANT: sirf un years ko
-       is object mein include karo jinka actual number mila ho - jis saal ka
-       number nahi mila usko null ke saath mat daalo, us saal ko object mein
-       daalo hi mat (key hi mat likho).
+    6. Total CSR Spend (in Crores, current/latest reported year). IMPORTANT: this must be
+       the company's CONSOLIDATED "Total Amount Spent for the Financial Year" figure (from
+       the Schedule VII / CSR Annexure compliance table), NOT the spend on a single focus
+       area, program, or implementing agency. If the text only has a program-wise or
+       area-wise breakup and no company-wide total anywhere, set csr_spend to null - do not
+       treat a smaller sub-item value as the total.
+    7. CSR Spend Financial Year - the financial year that the csr_spend figure belongs to
+       (e.g. "FY24" or "FY 2023-24"). In the Annexure table this is usually written at the
+       top of the report or in a row label (look for a "Financial Year" row/heading).
+       IMPORTANT: ALWAYS include the "csr_spend_year" key in the JSON output, even if its
+       value is null - never omit or drop this key entirely.
+    8. CSR Unspent Amount (in Crores, current/latest reported year - may be written as
+       "amount unspent" or "amount transferred to unspent CSR account").
+    9. Previous years' CSR Spend (as many years as appear in the table, usually 3 years,
+       each with its fiscal year label, e.g. "FY23", "FY24", etc.). This may appear in the
+       CSR Annexure "Details of CSR spent during the financial year" trend table, or in the
+       CSR KPIs of the BRSR (Business Responsibility and Sustainability Report) section -
+       check both places. If only the current year's number is found and there is no
+       multi-year comparison, keep this field as an empty object {{}} - do not attach a
+       number to the wrong year. IMPORTANT: include ONLY the years for which you actually
+       found a number - do not add a year with a null value; if a year's number was not
+       found, do not put that year in the object at all (do not even write the key).
+    10. Education Spend (current year, in Crores) - how much was spent on "Education" within
+        the CSR focus-area breakdown. This is written in the area-wise/theme-wise breakup
+        table of the CSR Annexure.
+    11. Education Spend Percentage (current year) - education spend as a percentage of total
+        CSR spend. Formula: (Education Spend / Total CSR Spend) * 100. If this percentage is
+        stated in the report, extract it; otherwise set it to null.
+    12. Education Spend History (previous years) - as many years as are available.
+        Format: {{"FY24": {{"amount": <crores>, "percentage": <pct of that year's CSR spend>}}, ...}}
+        If the percentage is not found, set "percentage": null, but "amount" is required.
 
     Text:
     {pdf_text[:18000]}
 
-    JSON format mein de. Agar data nahi mila to null/empty list/empty object de:
+    Return the answer in JSON format. If data is not found, use null / an empty list /
+    an empty object. IMPORTANT: the example below is only to show the FORMAT - do not copy
+    it literally. Fill in only the actual focus areas / names / NGOs found in the text, or
+    give an empty list [] if genuinely nothing is found:
     {{
-        "focus_areas": ["area1", "area2"],
-        "committee_members": ["name1", "name2"],
-        "implementation_partners": ["ngo1", "ngo2"],
+        "focus_areas": ["<text mein mile actual focus area, e.g. Education>", "..."],
+        "committee_members": ["<text mein mila actual committee member ka naam>", "..."],
+        "implementation_partners": ["<text mein mile actual NGO/partner ka naam>", "..."],
         "beneficiaries": <number or null>,
-        "key_programs": ["program1", "program2"],
+        "key_programs": ["<text mein mile actual program ka naam>", "..."],
         "csr_spend": <number or null>,
         "csr_spend_year": <string or null, e.g. "FY24">,
         "csr_unspent_amount": <number or null>,
-        "csr_spend_history": {{"FY24": <number>, "FY23": <number>, "FY22": <number>}}
+        "csr_spend_history": {{"FY24": <number>, "FY23": <number>, "FY22": <number>}},
+        "education_spend": <number or null>,
+        "education_spend_percentage": <number or null>,
+        "education_spend_history": {{"FY24": {{"amount": <crores>, "percentage": <pct>}}, "FY23": {{...}}}}
     }}
     """
 
     try:
-        message = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            max_tokens=1024,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        response_text = message.choices[0].message.content
-
-        # JSON extract karna
-        start = response_text.find("{")
-        end = response_text.rfind("}") + 1
-        json_str = response_text[start:end]
-
-        data = json.loads(json_str)
+        data = call_llm(prompt, json_mode=True, timeout=60)
 
         # Safety net: LLM kabhi kabhi "csr_spend_year" key hi chod deta hai
         # (prompt instruction follow nahi karta) - isliye yaha se guarantee karte hain.
         data.setdefault("csr_spend_year", None)
+        data.setdefault("education_spend", None)
+        data.setdefault("education_spend_percentage", None)
+        data.setdefault("education_spend_history", {})
 
         # Safety net: jin years ka number nahi mila unke liye LLM null value
         # bhej sakta hai instead of key ko omit karne ke - null entries hata dete hain
@@ -99,11 +104,18 @@ def extract_csr_data(pdf_text: str, company_name: str):
         history = data.get("csr_spend_history") or {}
         data["csr_spend_history"] = {fy: amount for fy, amount in history.items() if amount is not None}
 
-        return data
+        # Same for education spend history - remove null amount entries but keep percentage as-is
+        edu_history = data.get("education_spend_history") or {}
+        data["education_spend_history"] = {
+            fy: entry for fy, entry in edu_history.items()
+            if isinstance(entry, dict) and entry.get("amount") is not None
+        }
+
+        return data, None
 
     except Exception as e:
         print(f"[Error] CSR extraction failed: {e}")
-        return None
+        return None, classify_error(e, context="llm")
 
 
 def calculate_csr_budget(financial_data: dict) -> dict:
@@ -211,12 +223,85 @@ def calculate_net_profit_csr_budget(financial_data: dict) -> dict:
     }
 
 
+def calculate_education_spend_percentage(csr_data: dict) -> dict:
+    """
+    CSR data mein se education spend ka percentage calculate karo.
+
+    csr_data ka shape (extract_csr_data() se):
+    {
+        "csr_spend": <current year total>,
+        "csr_spend_year": "FY24",
+        "education_spend": <current year education>,
+        "education_spend_percentage": <already extracted % or null>,
+        "csr_spend_history": {"FY24": ..., "FY23": ..., "FY22": ...},
+        "education_spend_history": {
+            "FY24": {"amount": ..., "percentage": ...},
+            "FY23": {"amount": ..., "percentage": ...}
+        }
+    }
+
+    Returns education spend percentage data with calculated percentages where missing.
+    """
+    if not csr_data:
+        return {
+            "current_year": None,
+            "current_education_spend": None,
+            "current_education_percentage": None,
+            "previous_years_breakdown": {},
+            "note": "No CSR data available"
+        }
+
+    current_year = csr_data.get("csr_spend_year")
+    current_spend = csr_data.get("csr_spend")
+    current_edu_spend = csr_data.get("education_spend")
+    current_edu_pct = csr_data.get("education_spend_percentage")
+
+    # Calculate current year percentage if not provided
+    if current_edu_pct is None and current_edu_spend and current_spend:
+        current_edu_pct = round((current_edu_spend / current_spend) * 100, 2)
+
+    # Build previous years breakdown
+    previous_breakdown = {}
+    edu_history = csr_data.get("education_spend_history") or {}
+    csr_history = csr_data.get("csr_spend_history") or {}
+
+    for fy, edu_entry in edu_history.items():
+        if not isinstance(edu_entry, dict):
+            continue
+
+        edu_amount = edu_entry.get("amount")
+        edu_pct = edu_entry.get("percentage")
+        csr_amount = csr_history.get(fy)
+
+        # Calculate percentage if not provided but both amounts available
+        if edu_pct is None and edu_amount and csr_amount:
+            edu_pct = round((edu_amount / csr_amount) * 100, 2)
+
+        previous_breakdown[fy] = {
+            "education_spend": edu_amount,
+            "total_csr_spend": csr_amount,
+            "education_percentage": edu_pct
+        }
+
+    return {
+        "current_year": current_year,
+        "current_education_spend": current_edu_spend,
+        "current_education_percentage": current_edu_pct,
+        "previous_years_breakdown": previous_breakdown,
+        "note": None
+    }
+
+
 def check_prospect_criteria(financial_data: dict) -> bool:
     """
     Check karo ki company prospect hai ya nahi, sabse recent completed
     fiscal year (financial_data['fiscal_years'][0]) ke numbers se.
 
-    Criteria: Turnover >= 1000 Cr, Net Worth >= 500 Cr, Net Profit >= 5 Cr
+    Criteria (Companies Act Sec 135 ke mutabik): Turnover >= 1000 Cr OR
+    Net Worth >= 500 Cr OR Net Profit >= 5 Cr. Teeno mein se koi bhi ek
+    threshold poora ho jaye to company legally CSR obligated hai - is liye
+    OR use karte hain (pehle Net Worth+Net Profit AND the, jo law se strict
+    tha aur genuinely obligated companies ko chhod deta tha).
 
     financial_data ka shape (search_tool.get_financials_from_screener se):
     {
@@ -240,11 +325,45 @@ def check_prospect_criteria(financial_data: dict) -> bool:
         net_profit = (financial_data.get("net_profit") or {}).get(latest_fy)
 
         return bool(
-            turnover and turnover >= 1000 and
-            net_worth and net_worth >= 500 and
-            net_profit and net_profit >= 5
+            (turnover and turnover >= 1000) or
+            (net_worth and net_worth >= 500) or
+            (net_profit and net_profit >= 5)
         )
 
     except Exception as e:
         print(f"[Error] Criteria check failed: {e}")
         return False
+def extract_unlisted_financial_data(text: str, company_name: str) -> dict:
+    """
+    Extracts single-year financial numbers (Turnover, PBT, Net Profit, Net Worth)
+    from scraped text or annual report PDFs for unlisted companies.
+    """
+    prompt = f"""You are a financial data extractor. Extract the LATEST / CURRENT financial year metrics for "{company_name}" from the text below:
+    
+    Look for:
+    1. Financial Year (e.g., "FY26" or "FY25" or "2025-26")
+    2. Turnover / Revenue / Total Income (in Crores INR)
+    3. Profit Before Tax (PBT) (in Crores INR)
+    4. Net Profit / Profit After Tax (PAT) (in Crores INR)
+    5. Net Worth / Equity Capital + Reserves (in Crores INR)
+
+    Text:
+    {text[:12000]}
+
+    Return ONLY a single valid JSON object. Do not include comments or trailing commas. If a field is unknown/not found, set it to null:
+    {{
+        "fiscal_year": "FY26",
+        "turnover": 450.5,
+        "pbt": 35.0,
+        "net_profit": 25.0,
+        "net_worth": 200.0
+    }}
+    """
+    try:
+        return call_llm(prompt, json_mode=True, timeout=60)
+    except Exception as e:
+        print(f"[Error] Unlisted financial extraction failed: {e}")
+        return {}
+    except Exception as e:
+        print(f"[Error] Unlisted financial extraction failed: {e}")
+        return {}

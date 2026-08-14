@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tata Power - DonorIQ</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "inverse-primary": "#494bd6",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "outline": "#908fa0",
+                      "on-background": "#e2e2eb",
+                      "surface-bright": "#373940",
+                      "on-primary-fixed": "#07006c",
+                      "inverse-surface": "#e2e2eb",
+                      "error": "#ffb4ab",
+                      "surface-container-low": "#191b22",
+                      "on-tertiary-container": "#452000",
+                      "inverse-on-surface": "#2e3037",
+                      "tertiary-fixed-dim": "#ffb783",
+                      "secondary-fixed": "#e9ddff",
+                      "on-error-container": "#ffdad6",
+                      "surface": "#111319",
+                      "primary": "#c0c1ff",
+                      "tertiary-fixed": "#ffdcc5",
+                      "tertiary-container": "#d97721",
+                      "error-container": "#93000a",
+                      "secondary-container": "#571bc1",
+                      "on-secondary-container": "#c4abff",
+                      "on-error": "#690005",
+                      "primary-fixed": "#e1e0ff",
+                      "primary-container": "#8083ff",
+                      "surface-tint": "#c0c1ff",
+                      "on-tertiary-fixed-variant": "#703700",
+                      "outline-variant": "#464554",
+                      "on-secondary-fixed-variant": "#5516be",
+                      "surface-container-highest": "#33343b",
+                      "secondary-fixed-dim": "#d0bcff",
+                      "surface-container-lowest": "#0c0e14",
+                      "on-secondary-fixed": "#23005c",
+                      "background": "#111319",
+                      "on-primary": "#1000a9",
+                      "on-surface": "#e2e2eb",
+                      "surface-container-high": "#282a30",
+                      "tertiary": "#ffb783",
+                      "on-tertiary": "#4f2500",
+                      "on-primary-container": "#0d0096",
+                      "secondary": "#d0bcff",
+                      "surface-dim": "#111319",
+                      "surface-variant": "#33343b",
+                      "on-tertiary-fixed": "#301400",
+                      "on-secondary": "#3c0091",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "surface-container": "#1e1f26",
+                      "on-surface-variant": "#c7c4d7"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-lg": "32px",
+                      "container-max": "1440px",
+                      "unit": "4px",
+                      "gutter": "24px",
+                      "margin-desktop": "48px",
+                      "stack-md": "16px",
+                      "stack-sm": "8px",
+                      "margin-mobile": "16px"
+              },
+              "fontFamily": {
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "mono-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        .glass-card {
+            background-color: rgba(26, 29, 46, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid;
+            border-image-source: linear-gradient(to bottom right, #4F5269, transparent);
+            border-image-slice: 1;
+        }
+        .text-gradient {
+            background: linear-gradient(to right, #c0c1ff, #d0bcff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .bg-gradient-primary {
+            background: linear-gradient(to right, #8083ff, #571bc1);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen antialiased selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation (Mobile Only) -->
+<header class="md:hidden fixed top-0 w-full z-50 flex justify-between items-center px-gutter h-16 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-[0px_20px_40px_rgba(99,102,241,0.1)]">
+<div class="font-display-lg text-headline-md font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">DonorIQ</div>
+<div class="flex gap-4 items-center">
+<span class="material-symbols-outlined text-primary text-xl cursor-pointer hover:bg-surface-variant/50 p-2 rounded-full transition-all duration-200">search</span>
+<span class="material-symbols-outlined text-primary text-xl cursor-pointer hover:bg-surface-variant/50 p-2 rounded-full transition-all duration-200">notifications</span>
+<img class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A small, circular avatar portrait of a professional corporate researcher in a dark, high-contrast studio setting, illuminated with subtle rim lighting. Premium dark-mode aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWgZqB53-vH7MqZFYXAEaXdLvjsFSbXMd9Gj-J98V3oIjkCYtvh9cOTmPvm1UPVc879jfBEt9SRt0TJYSQ2TcOw_X0MihqOU4h94j6Xm7luaPdONVD9PTix450DYOMA7IBUUt0gLJCNohAgKF9EFw0RU-0kX8tUhG4XhDl1Tg_mFi0TwIZN2-fzCGR0W8pwvgcjjxNgMTJJMTyxC010uiJmLSTq-DKbYh9vmRxS5uqlExGLZcd9Rk-4g"/>
+</div>
+</header>
+<!-- Side Navigation (Desktop Only) -->
+<nav class="hidden md:flex fixed left-0 top-0 h-full flex-col pt-16 bg-surface-container-lowest w-[280px] border-r border-outline-variant/20">
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-[0px_0px_20px_rgba(99,102,241,0.3)]">
+<span class="material-symbols-outlined text-on-primary text-xl font-bold">radar</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md font-bold text-primary">DonorIQ</div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Intelligence Layer</div>
+</div>
+</div>
+<div class="px-4 mb-6">
+<button class="w-full py-3 px-4 rounded-lg bg-gradient-primary text-white font-label-md text-label-md uppercase tracking-wider flex items-center justify-center gap-2 hover:shadow-[0px_0px_15px_rgba(128,131,255,0.4)] transition-all duration-200 group">
+<span class="material-symbols-outlined text-sm group-hover:scale-110 transition-transform">add</span>
+                New Research
+            </button>
+</div>
+<ul class="flex flex-col gap-1 px-4 flex-grow">
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span> Dashboard
+                </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary-container/20 text-primary border-r-4 border-primary font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[20px]">psychology</span> Intelligence
+                </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[20px]">leaderboard</span> Pipeline
+                </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[20px]">monitoring</span> Analytics
+                </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span> Settings
+                </a>
+</li>
+</ul>
+<div class="px-4 pb-6 mt-auto">
+<ul class="flex flex-col gap-1">
+<li>
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">help</span> Support
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant/30 hover:translate-x-1 transition-transform duration-200 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">logout</span> Logout
+                    </a>
+</li>
+</ul>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="md:ml-[280px] pt-20 md:pt-8 px-margin-mobile md:px-margin-desktop pb-24 max-w-container-max mx-auto">
+<!-- Hero Section -->
+<div class="glass-card rounded-xl p-6 md:p-8 mb-stack-lg relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+<!-- Decorative background elements -->
+<div class="absolute -top-20 -right-20 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
+<div class="absolute -bottom-20 -left-20 w-64 h-64 bg-secondary/10 rounded-full blur-3xl pointer-events-none"></div>
+<div class="z-10 flex flex-col gap-2">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-symbols-outlined text-secondary text-sm bg-secondary/10 p-1 rounded">business</span>
+<span class="font-label-md text-label-md text-on-surface-variant tracking-wider uppercase">Energy Sector</span>
+</div>
+<h1 class="font-display-lg text-display-lg text-gradient leading-tight">Tata Power</h1>
+<a class="flex items-center gap-1 text-primary hover:text-primary-fixed transition-colors font-body-sm text-body-sm w-fit mt-1 group" href="https://www.tatapower.com" target="_blank">
+<span class="material-symbols-outlined text-[16px]">link</span> tatapower.com
+                    <span class="material-symbols-outlined text-[14px] opacity-0 group-hover:opacity-100 transition-opacity ml-1 -translate-x-2 group-hover:translate-x-0 duration-200">arrow_outward</span>
+</a>
+</div>
+<div class="z-10 flex items-center gap-6 bg-surface-container-low p-4 rounded-xl border border-outline-variant/30 shadow-[0px_10px_20px_rgba(0,0,0,0.2)]">
+<div class="flex flex-col items-end">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-md text-label-md text-on-surface-variant">CSR PROSPECT TIER</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary font-bold" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-headline-md text-headline-md font-bold text-white">Tier-A</span>
+</div>
+</div>
+<div class="relative w-20 h-20 flex items-center justify-center">
+<!-- Circular Progress Ring SVG -->
+<svg class="w-full h-full transform -rotate-90" viewbox="0 0 100 100">
+<circle cx="50" cy="50" fill="none" r="45" stroke="rgba(192, 193, 255, 0.1)" stroke-width="6"></circle>
+<circle class="drop-shadow-[0_0_4px_rgba(192,193,255,0.6)]" cx="50" cy="50" fill="none" r="45" stroke="url(#scoreGradient)" stroke-dasharray="282.7" stroke-dashoffset="36.7" stroke-linecap="round" stroke-width="6"></circle>
+<defs>
+<lineargradient id="scoreGradient" x1="0%" x2="100%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#c0c1ff"></stop>
+<stop offset="100%" stop-color="#571bc1"></stop>
+</lineargradient>
+</defs>
+</svg>
+<div class="absolute flex flex-col items-center justify-center">
+<span class="font-headline-md text-headline-md font-bold text-white">87</span>
+<span class="font-label-md text-[10px] text-on-surface-variant -mt-1">SCORE</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Tab Navigation -->
+<div class="flex overflow-x-auto border-b border-outline-variant/30 mb-stack-lg no-scrollbar">
+<button class="px-6 py-4 font-label-md text-label-md text-primary border-b-2 border-primary relative whitespace-nowrap">
+                Overview
+                <div class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-primary/20 to-transparent pointer-events-none"></div>
+</button>
+<button class="px-6 py-4 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">CSR Analysis</button>
+<button class="px-6 py-4 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">Financials</button>
+<button class="px-6 py-4 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">Contacts</button>
+<button class="px-6 py-4 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">CRM</button>
+<button class="px-6 py-4 font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors whitespace-nowrap">Compliance</button>
+</div>
+<!-- Main Grid Layout -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-gutter">
+<!-- Left Column: Content -->
+<div class="xl:col-span-8 flex flex-col gap-gutter">
+<!-- Info Grid Bento -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+<div class="glass-card rounded-lg p-5 hover:bg-surface-variant/20 transition-colors">
+<div class="flex items-center gap-2 mb-3 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">factory</span>
+<span class="font-label-md text-label-md uppercase tracking-wider">Sector</span>
+</div>
+<div class="font-headline-md text-headline-md text-on-surface">Energy</div>
+</div>
+<div class="glass-card rounded-lg p-5 hover:bg-surface-variant/20 transition-colors">
+<div class="flex items-center gap-2 mb-3 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">event</span>
+<span class="font-label-md text-label-md uppercase tracking-wider">Founded</span>
+</div>
+<div class="font-headline-md text-headline-md text-on-surface">1919</div>
+</div>
+<div class="glass-card rounded-lg p-5 hover:bg-surface-variant/20 transition-colors">
+<div class="flex items-center gap-2 mb-3 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">groups</span>
+<span class="font-label-md text-label-md uppercase tracking-wider">Employees</span>
+</div>
+<div class="font-headline-md text-headline-md text-on-surface">10k+</div>
+</div>
+</div>
+<!-- Financial Table & Donut Chart Row -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
+<!-- Financial Table -->
+<div class="glass-card rounded-xl p-6 flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline-md text-[20px] font-semibold text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">account_balance_wallet</span>
+                                Financial Summary
+                            </h2>
+<button class="text-primary hover:bg-primary/10 p-1.5 rounded-full transition-colors">
+<span class="material-symbols-outlined text-[20px]">open_in_new</span>
+</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant/30 text-on-surface-variant font-label-md text-label-md uppercase tracking-wider">
+<th class="py-3 px-2 font-medium">Year</th>
+<th class="py-3 px-2 font-medium text-right">Revenue (Cr)</th>
+<th class="py-3 px-2 font-medium text-right">Net Profit</th>
+<th class="py-3 px-2 font-medium text-right">CSR Budget</th>
+</tr>
+</thead>
+<tbody class="font-mono-sm text-mono-sm text-on-surface divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-variant/20 transition-colors">
+<td class="py-3 px-2">FY 23-24</td>
+<td class="py-3 px-2 text-right">₹61,219</td>
+<td class="py-3 px-2 text-right">₹4,280</td>
+<td class="py-3 px-2 text-right text-primary font-bold">₹85.6</td>
+</tr>
+<tr class="hover:bg-surface-variant/20 transition-colors">
+<td class="py-3 px-2 text-on-surface-variant">FY 22-23</td>
+<td class="py-3 px-2 text-right text-on-surface-variant">₹55,109</td>
+<td class="py-3 px-2 text-right text-on-surface-variant">₹3,810</td>
+<td class="py-3 px-2 text-right text-on-surface-variant">₹76.2</td>
+</tr>
+<tr class="hover:bg-surface-variant/20 transition-colors">
+<td class="py-3 px-2 text-on-surface-variant/60">FY 21-22</td>
+<td class="py-3 px-2 text-right text-on-surface-variant/60">₹42,576</td>
+<td class="py-3 px-2 text-right text-on-surface-variant/60">₹2,156</td>
+<td class="py-3 px-2 text-right text-on-surface-variant/60">₹43.1</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- CSR Score Donut Chart (Placeholder representation) -->
+<div class="glass-card rounded-xl p-6 flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline-md text-[20px] font-semibold text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary">donut_large</span>
+                                CSR Score Breakdown
+                            </h2>
+</div>
+<div class="flex-grow flex items-center justify-center relative">
+<!-- Abstract SVG representation of a complex donut -->
+<svg class="drop-shadow-[0_0_15px_rgba(128,131,255,0.15)]" height="200" viewbox="0 0 200 200" width="200">
+<!-- Community -->
+<path d="M 100 20 A 80 80 0 0 1 176 124 L 147 114 A 50 50 0 0 0 100 50 Z" fill="#8083ff" stroke="#1A1D2E" stroke-width="2"></path>
+<!-- Environment -->
+<path d="M 176 124 A 80 80 0 0 1 35 146 L 55 122 A 50 50 0 0 0 147 114 Z" fill="#571bc1" stroke="#1A1D2E" stroke-width="2"></path>
+<!-- Governance -->
+<path d="M 35 146 A 80 80 0 0 1 100 20 L 100 50 A 50 50 0 0 0 55 122 Z" fill="#c0c1ff" stroke="#1A1D2E" stroke-width="2"></path>
+<circle cx="100" cy="100" fill="#111319" r="45"></circle>
+<text fill="#ffffff" font-family="Inter" font-size="28" font-weight="700" text-anchor="middle" x="100" y="105">A-</text>
+</svg>
+</div>
+<div class="grid grid-cols-3 gap-2 mt-4 text-center">
+<div>
+<div class="w-3 h-3 rounded-full bg-[#8083ff] mx-auto mb-1"></div>
+<div class="font-label-md text-[10px] text-on-surface-variant uppercase">Community</div>
+</div>
+<div>
+<div class="w-3 h-3 rounded-full bg-[#571bc1] mx-auto mb-1"></div>
+<div class="font-label-md text-[10px] text-on-surface-variant uppercase">Environment</div>
+</div>
+<div>
+<div class="w-3 h-3 rounded-full bg-[#c0c1ff] mx-auto mb-1"></div>
+<div class="font-label-md text-[10px] text-on-surface-variant uppercase">Governance</div>
+</div>
+</div>
+</div>
+</div>
+<!-- CSR Analysis Preview (Line Chart) -->
+<div class="glass-card rounded-xl p-6 relative overflow-hidden group">
+<div class="absolute inset-0 bg-surface-container-high/40 z-10 backdrop-blur-[2px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+<button class="bg-primary text-on-primary px-6 py-2 rounded-full font-label-md text-label-md flex items-center gap-2 shadow-[0_0_20px_rgba(192,193,255,0.4)]">
+                            View Full CSR Analysis <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline-md text-[20px] font-semibold text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">trending_up</span>
+                            CSR Spend Trend
+                        </h2>
+<span class="font-label-md text-label-md text-on-surface-variant">5-Year View</span>
+</div>
+<div class="h-48 w-full relative">
+<!-- Abstract Line Chart SVG -->
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 100 100">
+<!-- Grid lines -->
+<line stroke="#33343b" stroke-dasharray="2 2" stroke-width="0.5" x1="0" x2="100" y1="25" y2="25"></line>
+<line stroke="#33343b" stroke-dasharray="2 2" stroke-width="0.5" x1="0" x2="100" y1="50" y2="50"></line>
+<line stroke="#33343b" stroke-dasharray="2 2" stroke-width="0.5" x1="0" x2="100" y1="75" y2="75"></line>
+<!-- Area fill -->
+<path d="M 0 100 L 0 70 L 25 65 L 50 45 L 75 30 L 100 15 L 100 100 Z" fill="url(#chartArea)" opacity="0.3"></path>
+<!-- Line -->
+<path class="drop-shadow-[0_0_6px_rgba(128,131,255,0.5)]" d="M 0 70 L 25 65 L 50 45 L 75 30 L 100 15" fill="none" stroke="#8083ff" stroke-width="2"></path>
+<!-- Data points -->
+<circle cx="25" cy="65" fill="#c0c1ff" r="2"></circle>
+<circle cx="50" cy="45" fill="#c0c1ff" r="2"></circle>
+<circle cx="75" cy="30" fill="#c0c1ff" r="2"></circle>
+<circle class="drop-shadow-[0_0_4px_#ffffff]" cx="100" cy="15" fill="#ffffff" r="2"></circle>
+<defs>
+<lineargradient id="chartArea" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#8083ff" stop-opacity="0.8"></stop>
+<stop offset="100%" stop-color="#8083ff" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+</svg>
+</div>
+</div>
+</div>
+<!-- Right Column: Sidebar (Contacts & CRM) -->
+<div class="xl:col-span-4 flex flex-col gap-gutter">
+<!-- Contacts Section -->
+<div class="glass-card rounded-xl p-6">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline-md text-[18px] font-semibold text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">contacts</span>
+                            Key Contacts
+                        </h2>
+<button class="text-on-surface-variant hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</button>
+</div>
+<!-- Contact Card -->
+<div class="bg-surface-container border border-outline-variant/30 rounded-lg p-4 mb-4 hover:border-primary/50 transition-colors group relative overflow-hidden">
+<div class="absolute left-0 top-0 h-full w-1 bg-gradient-primary opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex items-start gap-4">
+<img class="w-12 h-12 rounded-full object-cover border border-outline-variant/50" data-alt="A professional headshot of an Indian male executive, Rajesh Prasad, Director of CSR, smiling subtly. Dark background with cinematic corporate lighting. High resolution, premium feel." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIVT7VO1gjymUv-h_VmVGfGzQ7viU32AwLzooNYr4EHC4hl6qavWt1eGLj46jGRcKBuj7sxIYBFPvhtz6Ar70AN44o3Q-QOZFj7_hY_X6KwLrT8eLWw20EtpXnxfOagdVnXSk4ocka6oukBWf-Azz_m2fpxaJdMRzDuus6kONuzN73mPWdBr3xFHZZ8YZ51mCgYM-GUrXVp69uZ2VO0sIHTZmPVJpuM0Yojno1bE2we4Dt4EZkcpHLMQ"/>
+<div class="flex-grow">
+<h3 class="font-body-lg text-[16px] font-medium text-white mb-0.5">Rajesh Prasad</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-3">Director, CSR Initiatives</p>
+<div class="flex gap-2">
+<button class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 bg-surface rounded text-on-surface text-label-md font-label-md border border-outline-variant/50 hover:bg-surface-variant transition-colors group/btn">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant group-hover/btn:text-primary transition-colors">content_copy</span>
+                                        Email
+                                    </button>
+<a class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 bg-surface rounded text-on-surface text-label-md font-label-md border border-outline-variant/50 hover:bg-surface-variant transition-colors group/btn" href="#">
+<svg class="w-3.5 h-3.5 text-on-surface-variant group-hover/btn:text-[#0a66c2] transition-colors" fill="currentColor" viewbox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"></path></svg>
+                                        LinkedIn
+                                    </a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- CRM Status Quick View -->
+<div class="glass-card rounded-xl p-6 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-secondary-container/10 rounded-full blur-2xl pointer-events-none"></div>
+<h2 class="font-headline-md text-[18px] font-semibold text-white flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-secondary">assignment_ind</span>
+                        CRM Status
+                    </h2>
+<div class="flex flex-col gap-4">
+<div class="flex justify-between items-center border-b border-outline-variant/20 pb-3">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Pipeline Stage</span>
+<span class="bg-primary/20 text-primary px-2.5 py-1 rounded-full font-label-md text-[10px] uppercase tracking-wide border border-primary/30 shadow-[0_0_10px_rgba(192,193,255,0.2)]">Proposal In Review</span>
+</div>
+<div class="flex justify-between items-center border-b border-outline-variant/20 pb-3">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Last Interaction</span>
+<span class="font-body-sm text-body-sm text-white">4 Days Ago</span>
+</div>
+<div class="flex justify-between items-center pb-1">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Next Action</span>
+<span class="font-body-sm text-body-sm text-white text-right">Follow-up Call<br/><span class="text-tertiary text-[12px]">Oct 24, 2023</span></span>
+</div>
+</div>
+<button class="w-full mt-6 py-2.5 border border-outline-variant/50 rounded-lg text-on-surface font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]">update</span>
+                        Log Activity
+                    </button>
+</div>
+</div>
+</div>
+</main>
+</body></html>
