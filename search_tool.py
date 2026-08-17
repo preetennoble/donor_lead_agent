@@ -13,7 +13,8 @@ from error_utils import classify_error
 
 load_dotenv()
 
-tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+tavily_api_key = os.getenv("TAVILY_API_KEY")
+tavily = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 _tavily_semaphore = threading.Semaphore(3)  # Rate limit to ~3 concurrent Tavily calls
 
 INDIA_DOMAINS = [".in", "india.", "bharat.", "gov.in", "mca.gov.in"]
@@ -50,17 +51,63 @@ def _recent_indian_fiscal_years(count: int = 3) -> list:
     return [f"FY{str(latest_completed_fy_end_year - i)[-2:]}" for i in range(count)]
 
 
+def _serper_search(query: str, max_results: int = 5) -> dict:
+    """Execute search using Google Serper API."""
+    api_key = (os.getenv("SERPER_API_KEY") or os.getenv("serper_api_key") or "").strip().strip('"').strip("'")
+    if not api_key:
+        raise ValueError("SERPER_API_KEY is not configured in .env")
+
+    url = "https://google.serper.dev/search"
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "q": query,
+        "num": max_results,
+        "gl": "in",
+        "hl": "en"
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+
+    results = []
+    # Knowledge Graph
+    kg = data.get("knowledgeGraph") or {}
+    if kg.get("description"):
+        desc = f"{kg.get('title', '')}: {kg.get('description', '')}"
+        results.append({
+            "title": kg.get("title", ""),
+            "url": kg.get("website") or kg.get("descriptionUrl") or "",
+            "content": desc,
+            "raw_content": desc
+        })
+
+    # Organic search results
+    for item in data.get("organic", []):
+        snippet = item.get("snippet", "")
+        sitelinks = " ".join([s.get("snippet", "") for s in item.get("sitelinks", []) if s.get("snippet")])
+        full_content = f"{snippet} {sitelinks}".strip()
+        results.append({
+            "title": item.get("title", ""),
+            "url": item.get("link", ""),
+            "content": full_content,
+            "raw_content": full_content
+        })
+
+    return {"results": results}
+
+
 def _tavily_search_with_limit(query: str, max_results: int = 5, include_raw_content: bool = False, retries: int = 5) -> dict:
     """Wrapper around Tavily search with rate-limit semaphore and automatic retry."""
+    if not tavily:
+        raise ValueError("TAVILY_API_KEY is not configured in .env")
     with _tavily_semaphore:
         for attempt in range(retries):
             try:
                 return tavily.search(query, max_results=max_results, include_raw_content=include_raw_content)
             except Exception as e:
-                # If rate limited (HTTP 429 / "excessive requests"), back off and retry -
-                # exponential (4s, 8s, 16s, 32s) since bulk research can sustain a high
-                # request rate across many companies' pipelines at once, needing more
-                # recovery time than a single stray 429 would.
                 if "429" in str(e) or "rate" in str(e).lower() or "excessive" in str(e).lower():
                     if attempt < retries - 1:
                         time.sleep(4 * (2 ** attempt))
@@ -68,12 +115,22 @@ def _tavily_search_with_limit(query: str, max_results: int = 5, include_raw_cont
                 raise e
 
 
+def _execute_search(query: str, max_results: int = 5, include_raw_content: bool = True) -> dict:
+    """Routes search to active provider (serper or tavily)."""
+    provider = os.getenv("SEARCH_PROVIDER", "").lower().strip()
+    if not provider:
+        provider = "serper" if (os.getenv("SERPER_API_KEY") or os.getenv("serper_api_key")) else "tavily"
+
+    if provider == "serper":
+        return _serper_search(query, max_results=max_results)
+    else:
+        return _tavily_search_with_limit(query, max_results=max_results, include_raw_content=include_raw_content)
+
+
 def _search_stage_contact(stage: dict):
-    """Execute a single contact search stage. Returns (results, error_or_None) -
-    error is only set when the Tavily call itself raised, not when it cleanly
-    returned zero matches."""
+    """Execute a single contact search stage. Returns (results, error_or_None)."""
     try:
-        results = _tavily_search_with_limit(stage["query"], max_results=5, include_raw_content=True)
+        results = _execute_search(stage["query"], max_results=5, include_raw_content=True)
         collected = []
         for r in results.get("results", []):
             url = r.get("url", "")
@@ -163,7 +220,7 @@ def search_person_linkedin(person_name: str, company_name: str) -> str:
         return None
     query = f'"{person_name}" "{company_name}" site:linkedin.com/in'
     try:
-        results = _tavily_search_with_limit(query, max_results=3, include_raw_content=False)
+        results = _execute_search(query, max_results=3, include_raw_content=False)
         for r in results.get("results", []):
             url = r.get("url", "")
             if "linkedin.com/in/" in url.lower():
@@ -178,7 +235,7 @@ def _search_stage_csr(stage: dict, company_name: str, seen_urls: set):
     """Execute a single CSR search stage. Returns (results, error_or_None)."""
     print(f"[Search] {company_name}: {stage['query']}")
     try:
-        results = _tavily_search_with_limit(stage["query"], max_results=5, include_raw_content=True)
+        results = _execute_search(stage["query"], max_results=5, include_raw_content=True)
         collected = []
         for r in results.get("results", []):
             url = r.get("url", "")
@@ -272,7 +329,7 @@ def search_company_csr_info(company_name: str, website: str = None):
 
     if not collected and website:
         try:
-            fallback = _tavily_search_with_limit(f"{company_name} CSR report education spend 2024", max_results=3, include_raw_content=True)
+            fallback = _execute_search(f"{company_name} CSR report education spend 2024", max_results=3, include_raw_content=True)
             collected = fallback.get("results", [])
         except Exception as e:
             errors.append(classify_error(e))
@@ -512,7 +569,7 @@ def _search_stage_education(stage: dict, company_name: str, seen_urls: set) -> l
     """Execute a single education search stage, return filtered results."""
     print(f"[Search] Education - {company_name}: {stage['query']}")
     try:
-        results = _tavily_search_with_limit(stage["query"], max_results=5, include_raw_content=True)
+        results = _execute_search(stage["query"], max_results=5, include_raw_content=True)
         collected = []
         for r in results.get("results", []):
             url = r.get("url", "")
@@ -546,7 +603,7 @@ def search_annual_report_pdf(company_name: str, website: str = None) -> str:
 
         query = f"{company_name} annual report filetype:pdf site:.in" if not domain else f"site:{domain} annual report filetype:pdf"
 
-        results = _tavily_search_with_limit(query, max_results=3, include_raw_content=True)
+        results = _execute_search(query, max_results=3, include_raw_content=True)
 
         for r in results.get("results", []):
             url = r.get("url", "").lower()
@@ -692,7 +749,7 @@ def search_unlisted_company_financials(company_name: str, website: str = None) -
     ]
     collected_results = []
     for query in queries:
-        res = _tavily_search_with_limit(query, max_results=2, include_raw_content=True)
+        res = _execute_search(query, max_results=2, include_raw_content=True)
         for r in res.get("results", []):
             if r.get("url") and (r.get("raw_content") or r.get("content")):
                 collected_results.append(r)

@@ -18,6 +18,7 @@ def map_to_zoho_lead(company_data: dict) -> dict:
     """
     research = company_data.get("research_json") or {}
     crm = company_data.get("crm") or {}
+    contact = research.get("contact") or {}
     financial_data = company_data.get("financial_data") or {}
 
     # Latest fiscal year's turnover -> Zoho's standard Annual_Revenue field.
@@ -63,25 +64,50 @@ def map_to_zoho_lead(company_data: dict) -> dict:
         description_parts.append(f"Immediate Action: {crm['immediate_action']}")
     if crm.get("description"):
         description_parts.append(f"Notes: {crm['description']}")
+    if crm.get("decision_maker_name"):
+        description_parts.append(f"Decision Maker: {crm['decision_maker_name']}")
 
     def clean(val):
-        """Return empty string if value is None or the literal 'Not Found'."""
-        if not val or str(val).strip().lower() in ("not found", "none", "n/a"):
+        """Return empty string if value is None or the literal 'Not Found' / 'Not publicly available'."""
+        if not val or str(val).strip().lower() in ("not found", "none", "n/a", "not publicly available", "-"):
             return ""
         return str(val).strip()
 
+    # Determine Lead / Decision Maker Name
+    dm_name = clean(crm.get("decision_maker_name"))
+    if dm_name:
+        parts = dm_name.split(" ", 1)
+        first_name = parts[0] if len(parts) > 1 else ""
+        last_name = parts[1] if len(parts) > 1 else parts[0]
+    else:
+        first_name = clean(contact.get("first_name"))
+        last_name = clean(contact.get("last_name")) or company_data.get("company_name") or "Unknown Company"
+
+    # Determine Email and Phone
+    email = clean(crm.get("decision_maker_email")) or clean(contact.get("email"))
+    phone = clean(crm.get("decision_maker_phone")) or clean(contact.get("phone")) or clean(contact.get("mobile"))
+
     payload = {
-        "Last_Name": company_data.get("company_name") or "Unknown Company",
-        "Company": company_data.get("company_name") or "Unknown Company",
-        "Website": clean(company_data.get("website") or first_source_url(research)),
-        "Industry": clean(research.get("industry")),
-        "City": clean(research.get("city")),
-        "State": clean(research.get("state") or research.get("geographical_priority")),
+        "Last_Name": last_name[:80],
+        "Company": (company_data.get("company_name") or "Unknown Company")[:120],
+        "Website": clean(company_data.get("website") or first_source_url(research))[:255],
+        "Industry": clean(research.get("industry"))[:120],
+        "City": clean(research.get("city"))[:100],
+        "State": clean(research.get("state") or research.get("geographical_priority"))[:100],
         "Country": "India",
         "Description": "\n".join(description_parts),
         "Lead_Source": crm.get("lead_source") or "AI Research Agent",
         "Lead_Status": crm.get("lead_status") or "Open - Not Contacted",
     }
+
+    if first_name:
+        payload["First_Name"] = first_name[:40]
+    if email:
+        payload["Email"] = email[:100]
+    if phone:
+        payload["Phone"] = phone[:50]
+        payload["Mobile"] = phone[:50]
+
     if annual_revenue is not None:
         payload["Annual_Revenue"] = annual_revenue
 
@@ -140,20 +166,35 @@ def map_to_zoho_format(company: dict) -> dict:
         f"Source URL: {research.get('source_url', 'Not Found')}",
     ]
 
+    crm = company.get("crm", {}) or {}
+
+    dm_name = (crm.get("decision_maker_name") or "").strip()
+    if dm_name:
+        parts = dm_name.split(" ", 1)
+        first_name = parts[0] if len(parts) > 1 else ""
+        last_name = parts[1] if len(parts) > 1 else parts[0]
+    else:
+        first_name = contact.get("first_name", "Not publicly available")
+        last_name = contact.get("last_name", "Not publicly available")
+
+    email = crm.get("decision_maker_email") or contact.get("email", "Not publicly available")
+    phone = crm.get("decision_maker_phone") or contact.get("phone", "Not publicly available")
+    mobile = crm.get("decision_maker_phone") or contact.get("mobile", "Not publicly available")
+
     return {
         # Company fields
         "Company": company.get("company_name") or "Unknown Company",
         "Website": company.get("website") or first_source_url(research),
         "Industry": research.get("industry", "Not publicly available"),
         "Description": "\n".join(description_parts),
-        # Contact fields from research_json.contact
-        "First_Name": contact.get("first_name", "Not publicly available"),
-        "Last_Name": contact.get("last_name", "Not publicly available"),
-        "Email": contact.get("email", "Not publicly available"),
-        "Mobile": contact.get("mobile", "Not publicly available"),
-        "Phone": contact.get("phone", "Not publicly available"),
+        # Contact fields from CRM / Decision Maker or research_json.contact
+        "First_Name": first_name,
+        "Last_Name": last_name,
+        "Email": email,
+        "Mobile": mobile,
+        "Phone": phone,
         "Designation": contact.get("designation", "Not publicly available"),
-        "Record_Stage": company.get("record_stage", "Enriched Data"),   # ab fixed "Enriched" nahi, computed hai
+        "Record_Stage": company.get("record_stage", "Enriched Data"),
     }
 
 
@@ -187,15 +228,29 @@ def format_gpt_horizontal_table(company: dict) -> str:
 
     desc = f"Source Type: CSR Report; Annual Report; Company Website; LinkedIn. Confidence Level: {research.get('confidence', 'High')}. Source Notes: CSR spend and contact details verified. Source URLs: {research.get('source_url', '-')}"
 
+    # Decision Maker details override contact details if provided
+    dm_name = (crm.get("decision_maker_name") or "").strip()
+    if dm_name:
+        parts = dm_name.split(" ", 1)
+        first_name = parts[0] if len(parts) > 1 else ""
+        last_name = parts[1] if len(parts) > 1 else parts[0]
+    else:
+        first_name = contact.get("first_name", "Not publicly available")
+        last_name = contact.get("last_name", "Not publicly available")
+
+    email = crm.get("decision_maker_email") or contact.get("email", "Not publicly available")
+    phone = crm.get("decision_maker_phone") or contact.get("phone", "Not publicly available")
+    mobile = crm.get("decision_maker_phone") or contact.get("mobile", "Not publicly available")
+
     row = [
         "Enriched",
         crm.get("lead_owner") or "Shadab",
         company.get("company_name", "-"),
-        contact.get("first_name", "Not publicly available"),
-        contact.get("last_name", "Not publicly available"),
-        contact.get("email", "Not publicly available"),
-        contact.get("mobile", "Not publicly available"),
-        contact.get("phone", "Not publicly available"),
+        first_name,
+        last_name,
+        email,
+        mobile,
+        phone,
         company.get("website") or research.get("source_url", "-"),
         research.get("industry", "Not publicly available"),
         research.get("city", "Not publicly available"),

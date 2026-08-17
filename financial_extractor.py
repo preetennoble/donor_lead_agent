@@ -8,6 +8,37 @@ from llm_service import call_llm
 load_dotenv()
 
 
+CSR_FINANCIAL_KEYWORDS = {
+    "csr", "annexure", "schedule vii", "spent", "spend", "unspent", "budget", "obligation",
+    "crore", "lakh", "education", "school", "committee", "beneficiaries", "implementing",
+    "partner", "program", "project", "percentage", "fy2", "fy 20", "prescribed", "amount",
+    "section 135", "average net profit", "set off", "csr policy", "ongoing project"
+}
+
+def filter_csr_annexure_text(text: str, max_chars: int = 4500) -> str:
+    """Filters large annual report text to only paragraphs with CSR financial data and tables."""
+    if not text or len(text) <= 1500:
+        return text or ""
+    paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 15]
+    selected = []
+    seen = set()
+    total_len = 0
+    for p in paragraphs:
+        p_lower = p.lower()
+        if any(k in p_lower for k in CSR_FINANCIAL_KEYWORDS):
+            snip = p_lower[:50]
+            if snip in seen:
+                continue
+            seen.add(snip)
+            selected.append(p)
+            total_len += len(p)
+            if total_len >= max_chars:
+                break
+    if not selected:
+        return text[:2500]
+    return "\n\n".join(selected)
+
+
 def extract_csr_data(pdf_text: str, company_name: str):
     """
     Annual report PDF text se CSR-specific qualitative data extract karna
@@ -23,6 +54,7 @@ def extract_csr_data(pdf_text: str, company_name: str):
     Groq API call hi fail hui (jaise rate limit), taaki caller "genuinely
     kuch nahi mila" aur "extraction service hi fail ho gayi" mein farak kar sake.
     """
+    filtered_text = filter_csr_annexure_text(pdf_text, max_chars=4500)
 
     prompt = f"""
     From the CSR Annexure / Board's Report section of the annual report, extract the
@@ -66,7 +98,7 @@ def extract_csr_data(pdf_text: str, company_name: str):
         If the percentage is not found, set "percentage": null, but "amount" is required.
 
     Text:
-    {pdf_text[:18000]}
+    {filtered_text}
 
     Return the answer in JSON format. If data is not found, use null / an empty list /
     an empty object. IMPORTANT: the example below is only to show the FORMAT - do not copy

@@ -508,13 +508,16 @@ def update_crm_fields(company_id):
         updates["crm.immediate_action"] = request.form.get("immediate_action", "").strip()
     if "description" in request.form:
         updates["crm.description"] = request.form.get("description", "").strip()
+    if "decision_maker_name" in request.form:
+        updates["crm.decision_maker_name"] = request.form.get("decision_maker_name","").strip()
+    if "decision_maker_email" in request.form:
+        updates["crm.decision_maker_email"] = request.form.get("decision_maker_email", "").strip()
+    if "decision_maker_phone" in request.form:
+        updates["crm.decision_maker_phone"] = request.form.get("decision_maker_phone", "").strip()
     
     if updates:
         try:
-            companies_col.update_one(
-                {"_id": ObjectId(company_id)},
-                {"$set": updates}
-            )
+            update_company(company_id, updates)
             log_action(company_id, "crm_fields_updated", "Dashboard", 
                       details=f"Updated fields: {', '.join(updates.keys())}")
             return jsonify({"status": "updated", "message": "CRM fields updated successfully"})

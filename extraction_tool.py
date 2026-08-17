@@ -20,24 +20,65 @@ def _normalize_optional_text(value):
         return str(int(value)) if float(value).is_integer() else str(value)
     return str(value)
 
+RELEVANT_KEYWORDS = {
+    # CSR & Education Programs
+    "csr", "education", "schools", "school", "foundation", "social responsibility", "community",
+    "anganwadi", "stem", "steam", "maker stem", "infrastructure", "transformation",
+    "water", "sanitation", "hygiene", "wash", "drinking water",
+    "digital literacy", "computer education", "education technology", "e-learning",
+    "corporate citizenship", "community development", "social impact", "sustainable development",
+    "csr report", "annual report", "sustainability report", "brsr", "esg",
+    # Financials & Spend
+    "crore", "lakh", "turnover", "revenue", "profit", "budget", "spend", "spent",
+    "unspent", "financial year", "fy", "ticket size", "total csr expenditure",
+    # Contact & Leadership
+    "contact", "email", "phone", "mobile", "director", "head", "officer", "manager", "trustee", "linkedin"
+}
+
+def filter_relevant_text(raw_text: str, max_chars: int = 3500) -> str:
+    """Extracts only high-signal sentences/paragraphs related to CSR, financials, and contacts,
+    discarding website boilerplate, navbars, and legal disclaimers."""
+    if not raw_text or len(raw_text) <= 500:
+        return raw_text or ""
+
+    paragraphs = [p.strip() for p in raw_text.split("\n") if len(p.strip()) > 25]
+    selected_paragraphs = []
+    seen = set()
+    total_len = 0
+
+    for p in paragraphs:
+        p_lower = p.lower()
+        if any(keyword in p_lower for keyword in RELEVANT_KEYWORDS):
+            snippet_hash = p_lower[:60]
+            if snippet_hash in seen:
+                continue
+            seen.add(snippet_hash)
+
+            selected_paragraphs.append(p)
+            total_len += len(p)
+            if total_len >= max_chars:
+                break
+
+    if not selected_paragraphs:
+        return raw_text[:1500]
+
+    return "\n\n".join(selected_paragraphs)
+
 
 def extract_research_with_contact(company_name: str, sources: list):
     """Returns (CompanyResearch, error_or_None). error is set only when the LLM API
     call itself failed (network/auth/rate-limit/etc) - not when the model simply
     returned sparse "Not Found" fields, so callers can tell "the extraction service
     broke" apart from "genuinely nothing to extract"."""
-    # Dual support: OpenAI gpt-4o-mini if OPENAI_API_KEY is set, else Groq llama-3.3-70b-versatile.
-    # Decided up front because the two providers have very different per-request token budgets:
-    # Groq's llama-3.3-70b-versatile is capped at 12,000 TPM on the on-demand tier, so a request
-    # built from more than ~40k characters of source text gets rejected outright (413) before it
-    # even reaches the model - OpenAI has much more headroom, so it can take the fuller text.
     openai_key = os.getenv("OPENAI_API_KEY")
-    api_key = (os.getenv("qroq_api") or os.getenv("GROQ_API_KEY") or "").strip().strip('"').strip("'")
     source_text_char_limit = 100000 if openai_key else 38000
 
     combined_text = ""
     for s in sources:
-        combined_text += f"\n\n--- SOURCE ({s['source_type']}, Priority {s['priority']}): {s['url']} ---\n{s['text']}"
+        raw_source_text = s.get("text", "")
+        clean_text = filter_relevant_text(raw_source_text, max_chars=3000)
+        if clean_text:
+            combined_text += f"\n\n--- SOURCE ({s.get('source_type', 'Web')}, Priority {s.get('priority', 1)}): {s.get('url', '')} ---\n{clean_text}"
 
     prompt = f"""You are Ennoble CSR Partner Research GPT. Research "{company_name}" using ONLY
 the text excerpts provided below (from multiple sources, priority-ordered).

@@ -547,7 +547,19 @@
         </div>
         <div class="detail-field">
             <strong>Next Follow-up Date:</strong>
-            <input type="date" class="form-input" value="{{ crm.get('next_followups_date') or '' }}" onchange="updateFollowup('{{ c.id_str }}', this.value)">
+            <input type="date" class="form-input" value="{{ crm.get('next_followups_date') or crm.get('next_followup_date') or '' }}" onchange="updateFollowup('{{ c.id_str }}', this.value)">
+        </div>
+        <div class="detail-field">
+            <strong>Decision Maker Name:</strong>
+            <input type="text" class="form-input" value="{{ crm.get('decision_maker_name') or '' }}" onchange="updateDecisionMakerName('{{ c.id_str }}', this.value)" placeholder="Enter Decision Maker Name">
+        </div>
+        <div class="detail-field">
+            <strong>Decision Maker Phone:</strong>
+            <input type="tel" class="form-input" value="{{ crm.get('decision_maker_phone') or '' }}" onchange="updateDecisionMakerPhone('{{ c.id_str }}', this.value)" placeholder="Enter Phone Number">
+        </div>
+        <div class="detail-field">
+            <strong>Decision Maker Email:</strong>
+            <input type="email" class="form-input" value="{{ crm.get('decision_maker_email') or '' }}" onchange="updateDecisionMakerEmail('{{ c.id_str }}', this.value)" placeholder="Enter Email Address">
         </div>
         <div class="detail-field full-width">
             <strong>Immediate Action:</strong>
@@ -699,6 +711,33 @@
             .then(r => r.json())
             .then(data => showNotification(data.status === 'updated' ? 'Description updated successfully' : 'Error updating description: ' + data.message, data.status === 'updated' ? 'success' : 'error'))
             .catch(() => showNotification('Failed to update description', 'error'));
+    }
+
+    function updateDecisionMakerName(companyId, name) {
+        const formData = new FormData();
+        formData.append('decision_maker_name', name);
+        fetch(`/update-crm-fields/${companyId}`, { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => showNotification(data.status === 'updated' ? 'Decision maker name updated successfully' : 'Error updating decision maker name: ' + data.message, data.status === 'updated' ? 'success' : 'error'))
+            .catch(() => showNotification('Failed to update decision maker name', 'error'));
+    }
+
+    function updateDecisionMakerPhone(companyId, phone) {
+        const formData = new FormData();
+        formData.append('decision_maker_phone', phone);
+        fetch(`/update-crm-fields/${companyId}`, { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => showNotification(data.status === 'updated' ? 'Decision maker phone updated successfully' : 'Error updating decision maker phone: ' + data.message, data.status === 'updated' ? 'success' : 'error'))
+            .catch(() => showNotification('Failed to update decision maker phone', 'error'));
+    }
+
+    function updateDecisionMakerEmail(companyId, email) {
+        const formData = new FormData();
+        formData.append('decision_maker_email', email);
+        fetch(`/update-crm-fields/${companyId}`, { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => showNotification(data.status === 'updated' ? 'Decision maker email updated successfully' : 'Error updating decision maker email: ' + data.message, data.status === 'updated' ? 'success' : 'error'))
+            .catch(() => showNotification('Failed to update decision maker email', 'error'));
     }
 
     function downloadResearchPDF(companyId, companyName) {

@@ -134,6 +134,9 @@ class CRMRecord(BaseModel):
     next_followup_date: Optional[str] = None
     immediate_action: Optional[str] = None
     description: Optional[str] = None
+    decision_maker_name: Optional[str] = None
+    decision_maker_phone: Optional[str] = None
+    decision_maker_email: Optional[str] = None
 
 
 class WarmConnectSusggestion(BaseModel):

@@ -90,7 +90,28 @@ def upload_company_to_zoho(company_id: str) -> dict:
     except (requests.RequestException, ValueError) as error:
         print(f"[Zoho] Lead duplicate check warning: {error}")
 
-    if not lead_id:
+    if lead_id:
+        try:
+            update_payload = dict(lead_payload)
+            update_payload["id"] = lead_id
+            response = requests.put(
+                f"{API_DOMAIN}/crm/v6/Leads",
+                headers=headers,
+                json={"data": [update_payload]},
+                timeout=15,
+            )
+            response_data = response.json()
+            result = (response_data.get("data") or [{}])[0]
+            if result.get("status") != "success":
+                raise RuntimeError(f"HTTP {response.status_code}: {json.dumps(response_data)}")
+            print(f"[Zoho] Updated Lead '{company['company_name']}' with ID: {lead_id}")
+        except (requests.RequestException, ValueError, KeyError, RuntimeError) as error:
+            message = f"Failed to update Lead: {error}"
+            print(f"[Zoho] {message}")
+            update_company(company_id, {"upload_status": "failed"})
+            log_action(company_id, "crm_upload_failed", "ZohoUploadHandler", details=message)
+            return {"status": "error", "message": message}
+    else:
         try:
             response = requests.post(
                 f"{API_DOMAIN}/crm/v6/Leads",

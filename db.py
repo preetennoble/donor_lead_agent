@@ -106,6 +106,9 @@ def create_company(company_name: str, website: str = None, created_by: str = Non
             "next_followups_date": None,
             "immediate_action": None,
             "description": None,
+            "decision_maker_name" : None,
+            "decision_maker_phone" : None,
+            "decision_maker_email" : None,
         },
         "approval_status": "pending",
         "upload_status": "not_uploaded",
@@ -206,4 +209,4 @@ def get_tier_a_companies(username: str = None, role: str = None) -> list:
     if username:
         return list(_user_col(username).find(query))
     return []
-
+
