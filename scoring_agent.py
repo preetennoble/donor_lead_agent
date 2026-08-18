@@ -77,7 +77,7 @@ Return ONLY a JSON object with this exact structure:
   }}
 }}
 """
-    data, err = call_llm_safe(prompt, json_mode=True, timeout=60)
+    data, err = call_llm_safe(prompt, json_mode=True, timeout=300)
     if err or not isinstance(data, dict):
         return {}, fallback, err
 
@@ -112,12 +112,49 @@ _PROGRAM_FLAG_FIELD = {
 }
 
 _PROGRAM_KEYWORDS = {
-    "STEM Education": (["stem", "science lab", "digital learning", "computer lab", "coding", "robotics", "digital literacy", "smart class", "ai lab"], ["technology", "innovation lab", "computer", "science"]),
-    "School Infrastructure Transformation": (["school infrastructure", "sanitation", "classroom renovation", "school building", "infrastructure", "drinking water", "toilets", "school building", "classrooms"], ["renovation", "water", "building", "solar school"]),
-    "Holistic School Transformation": (["holistic school", "whole school transformation", "school transformation", "school development", "adopt school", "school adoption"], ["school development", "holistic development", "child development"]),
-    "Anganwadi Transformation": (["anganwadi", "early childhood", "preschool", "maternal health", "balwadi", "early learning"], ["nutrition", "child care", "pre-primary"]),
-    "Quality Education": (["quality education", "teacher training", "learning outcome", "literacy program", "scholarship", "foundational learning", "remedial education", "education support"], ["learning", "education", "literacy", "scholarship", "schools", "students", "academic"]),
-    "Model School Transformation": (["model school", "district-level education", "district level education", "government school upgrade", "hub school"], ["state-wide education", "district", "cluster school"]),
+    "STEM Education": (
+        # High-signal: specific terms for STEM/digital interventions
+        ["stem", "science lab", "digital learning", "computer lab", "coding", "robotics", "digital literacy",
+         "smart class", "ai lab", "ict", "information technology education", "computer education",
+         "skill development", "digital education", "technology education", "maker lab", "innovation center",
+         "tinkering lab", "atal tinkering", "steam", "e-learning", "digital classroom"],
+        # Medium-signal: broader tech/education overlap
+        ["technology", "innovation", "computer", "science", "digital", "tech", "software", "it skills",
+         "vocational training", "employability", "skilling", "digital india"]
+    ),
+    "School Infrastructure Transformation": (
+        ["school infrastructure", "sanitation", "classroom renovation", "school building", "drinking water",
+         "toilets", "school construction", "school facility", "school renovation", "washroom",
+         "water facility", "hygiene", "school maintenance", "school development", "school support"],
+        ["renovation", "water", "building", "solar school", "infrastructure", "school", "facility",
+         "construction", "repair", "upgrade"]
+    ),
+    "Holistic School Transformation": (
+        ["holistic school", "whole school transformation", "school transformation", "school development",
+         "adopt school", "school adoption", "school improvement", "model government school",
+         "comprehensive school", "school excellence", "school reform"],
+        ["school development", "holistic development", "child development", "school program",
+         "school initiative", "school support", "education program", "student development"]
+    ),
+    "Anganwadi Transformation": (
+        ["anganwadi", "early childhood", "preschool", "maternal health", "balwadi", "early learning",
+         "pre-primary", "icds", "child care center", "creche", "early education"],
+        ["nutrition", "child care", "pre-primary", "maternal", "infant", "toddler", "0-6 years"]
+    ),
+    "Quality Education": (
+        ["quality education", "teacher training", "learning outcome", "literacy program", "scholarship",
+         "foundational learning", "remedial education", "education support", "school program",
+         "student support", "academic support", "education initiative", "school children",
+         "primary education", "secondary education", "education access", "girl education",
+         "dropout", "enrolment", "reading program", "numeracy", "education ngo"],
+        ["learning", "education", "literacy", "scholarship", "schools", "students", "academic",
+         "teachers", "children", "community learning", "social education", "welfare"]
+    ),
+    "Model School Transformation": (
+        ["model school", "district-level education", "district level education", "government school upgrade",
+         "hub school", "cluster school", "school of excellence", "benchmark school"],
+        ["state-wide education", "district", "cluster", "government school", "school upgrade"]
+    ),
 }
 
 

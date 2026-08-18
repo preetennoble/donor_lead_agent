@@ -264,7 +264,7 @@ def search_company_csr_info(company_name: str, website: str = None):
     domain = urlparse(website).netloc.replace("www.", "") if website else None
 
     csr_stages = [
-        # 1. CSR Spend & Financial Capacity
+        # 1. CSR Spend & Financial Capacity (highest priority - needed for scoring)
         {
             "priority": 1,
             "source_type": "Financial / CSR",
@@ -275,40 +275,40 @@ def search_company_csr_info(company_name: str, website: str = None):
         {
             "priority": 1,
             "source_type": "STEM Education",
-            "query": f"{company_name} CSR STEM science lab robotics coding digital learning computer education",
+            "query": f"{company_name} CSR STEM science lab robotics coding digital learning computer education skill development technology",
         },
 
-        # 3. School Infrastructure & Holistic School Transformation
-        {
-            "priority": 1,
-            "source_type": "School Infrastructure",
-            "query": f"{company_name} CSR school infrastructure classroom renovation sanitation toilets drinking water school transformation",
-        },
-
-        # 4. Anganwadi & Early Childhood Development
-        {
-            "priority": 1,
-            "source_type": "Anganwadi Fitment",
-            "query": f"{company_name} CSR Anganwadi early childhood education preschool maternal child health nutrition",
-        },
-
-        # 5. Quality Education & Teacher Training
+        # 3. Quality Education & Teacher Training
         {
             "priority": 1,
             "source_type": "Quality Education",
-            "query": f"{company_name} CSR quality education scholarships teacher training learning outcomes foundational literacy",
+            "query": f"{company_name} CSR quality education scholarships teacher training learning outcomes foundational literacy school program students",
+        },
+
+        # 4. School Infrastructure & Holistic School Transformation
+        {
+            "priority": 2,
+            "source_type": "School Infrastructure",
+            "query": f"{company_name} CSR school infrastructure classroom renovation sanitation toilets drinking water school transformation school building",
+        },
+
+        # 5. Anganwadi & Early Childhood Development
+        {
+            "priority": 2,
+            "source_type": "Anganwadi Fitment",
+            "query": f"{company_name} CSR Anganwadi early childhood education preschool balwadi maternal child health nutrition pre-primary",
         },
 
         # 6. Implementation Partners & Foundations
         {
-            "priority": 2,
+            "priority": 3,
             "source_type": "Implementation Partners",
             "query": f"{company_name} CSR NGO implementation partner foundation education schools project",
         },
 
         # 7. Operational Geography & Beneficiaries
         {
-            "priority": 2,
+            "priority": 3,
             "source_type": "Geography",
             "query": f"{company_name} CSR project locations districts states beneficiaries schools area of operation",
         },

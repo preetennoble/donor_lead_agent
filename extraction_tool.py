@@ -74,11 +74,20 @@ def extract_research_with_contact(company_name: str, sources: list):
     source_text_char_limit = 100000 if openai_key else 38000
 
     combined_text = ""
-    for s in sources:
+    # Sort sources by priority and take top 10 most relevant sources.
+    # Per-source cap raised to 3000 chars and total cap raised to 20000 chars so that
+    # all 7 CSR search stages (STEM, Infrastructure, Anganwadi, Quality Education, etc.)
+    # contribute text to the LLM rather than being silently truncated after the first
+    # 2-3 financial/contact sources fill the old 5000-char budget.
+    sorted_sources = sorted(sources, key=lambda s: s.get("priority", 99))[:10]
+    for s in sorted_sources:
         raw_source_text = s.get("text", "")
-        clean_text = filter_relevant_text(raw_source_text, max_chars=3000)
+        clean_text = filter_relevant_text(raw_source_text, max_chars=8000)
         if clean_text:
             combined_text += f"\n\n--- SOURCE ({s.get('source_type', 'Web')}, Priority {s.get('priority', 1)}): {s.get('url', '')} ---\n{clean_text}"
+            if len(combined_text) >= 38000:
+                combined_text = combined_text[:38000]
+                break
 
     prompt = f"""You are Ennoble CSR Partner Research GPT. Research "{company_name}" using ONLY
 the text excerpts provided below (from multiple sources, priority-ordered).
@@ -165,7 +174,7 @@ TEXT EXCERPTS:
 {combined_text[:source_text_char_limit]}
 """
 
-    data, llm_error = call_llm_safe(prompt, json_mode=True, timeout=60)
+    data, llm_error = call_llm_safe(prompt, json_mode=True, timeout=120)
     if not isinstance(data, dict):
         data = {}
 
