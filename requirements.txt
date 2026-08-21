@@ -5,6 +5,7 @@ pymongo>=4.6.0
 pydantic
 python-dotenv
 requests
+redis>=5.0.0
 tavily-python
 groq
 beautifulsoup4

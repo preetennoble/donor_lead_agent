@@ -148,6 +148,67 @@
     </div>
 </div>
 
+<!-- Dedicated Education Fitment Research -->
+{% set education_evidence = c.get('education_fitment_evidence') or {} %}
+<div class="glass-panel rounded-xl p-stack-lg mb-stack-lg">
+    <h2 class="font-headline-md text-headline-md text-on-surface mb-stack-md">Education Fitment Research</h2>
+    <p class="font-body-sm text-body-sm text-on-surface-variant" style="margin-bottom: 16px;">
+        These six fields come from the dedicated education search pass. Evidence and source links are stored separately from the final research values.
+    </p>
+    <div class="detail-fields" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
+        {% set education_fields = [
+            ('csr_stem_education', 'STEM Education'),
+            ('csr_school_infra_transformation', 'School Infrastructure Transformation'),
+            ('csr_holistic_transformation', 'Holistic School Transformation'),
+            ('csr_anganwadi_transformation', 'Anganwadi Transformation'),
+            ('csr_quality_education', 'Quality Education'),
+            ('csr_model_school_transformation', 'Model School Transformation')
+        ] %}
+        {% for field, label in education_fields %}
+        {% set evidence = education_evidence.get(field, {}) or {} %}
+        <div class="detail-field" style="padding: 12px; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;">
+            <strong>{{ label }}:</strong>
+            <div style="margin-top: 6px; color: #f1f5f9;">{{ research.get(field, 'Not Found') }}</div>
+            {% if evidence.get('status') %}
+            {% set normalized_value = research.get(field, 'Not Found') | string | lower | trim %}
+            {% set display_status = 'found' if normalized_value in ['yes', 'no'] else evidence.get('status') %}
+            <div style="margin-top: 5px; font-size: 11px; color: #94a3b8;">
+                Status: {{ display_status }} · {{ evidence.get('sources_checked', 0) }} sources checked
+            </div>
+            {% endif %}
+            {% if evidence.get('evidence') %}
+            <div style="margin-top: 7px; font-size: 12px; color: #cbd5e1;">{{ evidence.get('evidence') }}</div>
+            {% endif %}
+            {% if evidence.get('sources') %}
+            <div style="margin-top: 7px; font-size: 11px;">
+                <span style="color:#94a3b8; margin-right:6px;">Supporting sources:</span>
+                {% for source in evidence.get('sources') %}
+                {% if source is string %}
+                    {% set source_url = source %}
+                    {% set source_label = source | source_name %}
+                {% else %}
+                    {% set source_url = source.get('url') %}
+                    {% set source_label = source.get('title') or (source_url | source_name) %}
+                {% endif %}
+                <a href="{{ source_url }}" target="_blank" rel="noopener noreferrer" class="source-link">{{ source_label }}</a>{% if not loop.last %} · {% endif %}
+                {% endfor %}
+            </div>
+            {% elif evidence.get('checked_sources') %}
+            <div style="margin-top: 7px; font-size: 11px;">
+                <span style="color:#94a3b8; margin-right:6px;">Sources checked:</span>
+                {% for source in evidence.get('checked_sources') %}
+                {% set source_url = source.get('url') if source is mapping else source %}
+                {% set source_label = (source.get('title') or (source_url | source_name)) if source is mapping else (source | source_name) %}
+                <a href="{{ source_url }}" target="_blank" rel="noopener noreferrer" class="source-link">{{ source_label }}</a>{% if not loop.last %} · {% endif %}
+                {% endfor %}
+                <div style="margin-top:4px; color:#94a3b8;">The extractor did not identify a specific supporting source.</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
 <!-- Financial Data -->
 {% set financial_data = c.get('financial_data') or {} %}
 {% if financial_data and (financial_data.get('turnover') or financial_data.get('pbt')) %}

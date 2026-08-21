@@ -220,3 +220,108 @@ TEXT EXCERPTS:
     )
 
     return CompanyResearch(**data), llm_error
+
+
+EDUCATION_FIELDS = [
+    "csr_stem_education",
+    "csr_school_infra_transformation",
+    "csr_holistic_transformation",
+    "csr_anganwadi_transformation",
+    "csr_quality_education",
+    "csr_model_school_transformation",
+]
+
+
+def extract_education_fields(company_name: str, search_data: dict):
+    """Extract the six education fields from dedicated, labelled evidence."""
+    field_meta = {}
+    sections = []
+    for field in EDUCATION_FIELDS:
+        details = search_data.get(field, {})
+        sources = details.get("sources", [])
+        field_meta[field] = {
+            "attempts": details.get("attempts", 0),
+            "sources_checked": details.get("sources_checked", 0),
+            "search_errors": details.get("errors", []),
+        }
+        source_lines = []
+        for index, source in enumerate(sources[:5], start=1):
+            source_lines.append(
+                f"[{index}] URL: {source.get('url', '')}\n"
+                f"{filter_relevant_text(source.get('text', ''), max_chars=3500)}"
+            )
+        sections.append(
+            f"\n### FIELD: {field}\n"
+            f"SEARCH METADATA: {json.dumps(field_meta[field], ensure_ascii=False)}\n"
+            + ("\n".join(source_lines) if source_lines else "NO SOURCES")
+        )
+
+    prompt = f"""You are an evidence verifier for {company_name}'s CSR education programs.
+Use ONLY the labelled source excerpts below. Do not use general knowledge.
+
+For each field return:
+- value: Yes only when the source explicitly supports that exact activity;
+  No only when a reliable source explicitly says it is absent; otherwise Not Found.
+- evidence: a short factual quote/paraphrase grounded in the source, or empty string.
+- source_indexes: indexes of the supporting sources, such as [1, 2].
+
+Do not treat a generic statement that the company supports education as proof of
+STEM, school infrastructure, holistic transformation, Anganwadi, quality
+education, or model-school transformation. Return Not Found when the complete
+field search metadata shows sources were checked but no specific evidence exists.
+
+Return ONLY valid JSON:
+{{
+  "csr_stem_education": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}},
+  "csr_school_infra_transformation": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}},
+  "csr_holistic_transformation": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}},
+  "csr_anganwadi_transformation": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}},
+  "csr_quality_education": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}},
+  "csr_model_school_transformation": {{"value": "Yes/No/Not Found", "evidence": "", "source_indexes": []}}
+}}
+
+{''.join(sections)}
+"""
+
+    data, error = call_llm_safe(prompt, json_mode=True, timeout=120)
+    if error:
+        return {}, error
+
+    result = {}
+    for field in EDUCATION_FIELDS:
+        details = search_data.get(field, {})
+        raw = data.get(field) if isinstance(data.get(field), dict) else {}
+        value = str(raw.get("value") or "Not Found").strip().lower()
+        if value not in {"yes", "no", "not found"}:
+            value = "not found"
+        indexes = raw.get("source_indexes") if isinstance(raw.get("source_indexes"), list) else []
+        sources = details.get("sources", [])
+        valid_indexes = [i for i in indexes if isinstance(i, int) and 1 <= i <= min(5, len(sources))]
+        search_errors = details.get("errors", [])
+        status = "search_failed" if search_errors and not sources else (
+            "found" if value in {"yes", "no"} else "exhausted"
+        )
+        result[field] = {
+            "value": value.title() if value != "not found" else "Not Found",
+            "evidence": str(raw.get("evidence") or "").strip(),
+            "sources": [
+                {
+                    "url": sources[i - 1].get("url"),
+                    "title": sources[i - 1].get("title") or "",
+                }
+                for i in valid_indexes
+            ],
+            "checked_sources": [
+                {
+                    "url": source.get("url"),
+                    "title": source.get("title") or "",
+                }
+                for source in sources[:5]
+                if source.get("url")
+            ],
+            "status": status,
+            "attempts": details.get("attempts", 0),
+            "sources_checked": details.get("sources_checked", 0),
+            "search_errors": search_errors,
+        }
+    return result, None

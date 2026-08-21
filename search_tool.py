@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from error_utils import classify_error
+from redis_cache import get_json, set_json, make_key
 
 load_dotenv()
 
@@ -18,6 +19,10 @@ tavily = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 _tavily_semaphore = threading.Semaphore(3)  # Rate limit to ~3 concurrent Tavily calls
 
 INDIA_DOMAINS = [".in", "india.", "bharat.", "gov.in", "mca.gov.in"]
+# CSRBOX is an India-focused CSR/NGO research directory even though it uses a
+# .org domain. Keep it in the India-source allowlist so domain-restricted
+# searches are not discarded by the country relevance filter.
+INDIA_SOURCE_DOMAINS = ["csrbox.org"]
 NON_INDIA_INDICATORS = ["usa.", "uk.", "america.", "global", "worldwide", "en.wikipedia"]
 
 def _is_india_result(url: str, content: str = "") -> bool:
@@ -27,6 +32,10 @@ def _is_india_result(url: str, content: str = "") -> bool:
 
     # Positive signals for India
     for domain in INDIA_DOMAINS:
+        if domain in url_lower:
+            return True
+
+    for domain in INDIA_SOURCE_DOMAINS:
         if domain in url_lower:
             return True
 
@@ -121,10 +130,20 @@ def _execute_search(query: str, max_results: int = 5, include_raw_content: bool 
     if not provider:
         provider = "serper" if (os.getenv("SERPER_API_KEY") or os.getenv("serper_api_key")) else "tavily"
 
+    cache_key = make_key("search", provider, query, max_results, include_raw_content)
+    cached = get_json(cache_key)
+    if cached is not None:
+        print(f"[Search Cache] Hit: {query}")
+        return cached
+
     if provider == "serper":
-        return _serper_search(query, max_results=max_results)
+        result = _serper_search(query, max_results=max_results)
     else:
-        return _tavily_search_with_limit(query, max_results=max_results, include_raw_content=include_raw_content)
+        result = _tavily_search_with_limit(query, max_results=max_results, include_raw_content=include_raw_content)
+
+    # Cache successful responses only; failed calls must remain retryable.
+    set_json(cache_key, result)
+    return result
 
 
 def _search_stage_contact(stage: dict):
@@ -172,6 +191,12 @@ def search_contact_sources(company_name:str, website: str= None)-> dict:
 
         {
             "priority" : 2,
+            "source_type" : "CSRBOX",
+            "query" : f"site:csrbox.org {company_name} CSR foundation NGO education contact",
+        },
+
+        {
+            "priority" : 2,
             "source_type" : "Annual Report",
             "query": f"{company_name} India CSR committee member annual report BRSR"
         },
@@ -194,7 +219,7 @@ def search_contact_sources(company_name:str, website: str= None)-> dict:
 
     # Run all search stages concurrently
     errors = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=len(search_stages)) as executor:
         futures = {executor.submit(_search_stage_contact, stage): stage for stage in search_stages}
         for future in as_completed(futures):
             results, error = future.result()
@@ -264,6 +289,15 @@ def search_company_csr_info(company_name: str, website: str = None):
     domain = urlparse(website).netloc.replace("www.", "") if website else None
 
     csr_stages = [
+        # CSRBOX is a dedicated Indian CSR/NGO directory and often contains
+        # program, partner, geography, and beneficiary details that do not
+        # appear on a company's own website.
+        {
+            "priority": 1,
+            "source_type": "CSRBOX",
+            "query": f"site:csrbox.org {company_name} CSR education school NGO project foundation",
+        },
+
         # 1. CSR Spend & Financial Capacity (highest priority - needed for scoring)
         {
             "priority": 1,
@@ -563,6 +597,120 @@ def search_education_spend_data(company_name: str, website: str = None) -> dict:
             collected.extend(results)
 
     return {"education_sources": collected}
+
+
+EDUCATION_FIELD_QUERIES = {
+     # 2. STEM Education
+    "csr_stem_education": [
+        "{company} CSR STEM science mathematics technology education",
+        "{company} CSR science lab computer lab digital learning coding robotics Ai artificail intelligence",
+        "{company} CSR STEM project science technology students school",
+        "{company} CSR Atal Tinkering Lab innovation lab AI technology education",
+    ],
+
+    # 3. School Infrastructure
+    "csr_school_infra_transformation": [
+        "{company} CSR school infrastructure classroom renovation government school",
+        "{company} CSR school toilets sanitation drinking water WASH",
+        "{company} CSR school building construction renovation furniture facilities",
+        "{company} CSR smart classroom digital classroom school infrastructure",
+    ],
+
+    # 4. Holistic School Transformation
+    "csr_holistic_transformation": [
+        "{company} CSR school transformation school development programme",
+        "{company} CSR whole school comprehensive school development",
+        "{company} CSR school adoption government school improvement",
+        "{company} CSR integrated school education teacher infrastructure development",
+    ],
+
+    # 5. Anganwadi / Early Childhood
+    "csr_anganwadi_transformation": [
+        "{company} CSR Anganwadi transformation development infrastructure",
+        "{company} CSR Anganwadi centre preschool Balwadi education",
+        "{company} CSR early childhood education development learning",
+        "{company} CSR child nutrition preschool maternal child development",
+    ],
+
+    # 6. Quality Education
+    "csr_quality_education": [
+        "{company} CSR quality education learning outcomes teacher training",
+        "{company} CSR literacy numeracy foundational learning remedial education",
+        "{company} CSR scholarship students education support underprivileged children",
+        "{company} CSR teacher development student learning academic improvement",
+        "{company} CSR career guidance mentoring vocational education students",
+    ],
+
+    # 7. Model School
+    "csr_model_school_transformation": [
+        "{company} CSR model school government school upgrade",
+        "{company} CSR government school transformation school upgradation",
+        "{company} CSR district school development model school",
+        "{company} CSR school excellence cluster schools education transformation",
+    ],
+
+    # 8. Education Project Validation
+    "csr_education_validation": [
+        "{company} CSR education beneficiaries schools students location",
+        "{company} CSR education project amount spent implementation partner",
+        "{company} CSR education NGO foundation project annual report",
+        "{company} CSR education FY25 FY24 FY23 annual report BRSR",
+    ],
+}
+
+
+def search_education_fields(company_name: str, website: str = None) -> dict:
+    """Dedicated search pass for the six education fitment fields.
+
+    Each field gets its own query set and source list.  This prevents contact,
+    financial, or generic CSR results from consuming the education evidence
+    budget in the general extraction prompt.
+    """
+    domain = urlparse(website).netloc.replace("www.", "") if website else ""
+
+    def search_one_field(field):
+        sources = []
+        seen_urls = set()
+        errors = []
+        templates = EDUCATION_FIELD_QUERIES[field]
+        for attempt, template in enumerate(templates, start=1):
+            query = template.format(company=company_name)
+            if domain:
+                query = f"{query} site:{domain}" if attempt == len(templates) else query
+            print(f"[Education Search {attempt}/{len(templates)}] {field}: {query}")
+            try:
+                result = _execute_search(query, max_results=5, include_raw_content=True)
+                for item in result.get("results", []):
+                    url = item.get("url", "")
+                    text = item.get("raw_content") or item.get("content", "")
+                    if not url or url in seen_urls or not _is_india_result(url, text):
+                        continue
+                    seen_urls.add(url)
+                    sources.append({
+                        "url": url,
+                        "title": item.get("title", ""),
+                        "text": text[:7000],
+                        "query": query,
+                        "attempt": attempt,
+                    })
+            except Exception as exc:
+                print(f"[Search Warning] Education field {field} failed: {exc}")
+                errors.append(classify_error(exc))
+        return field, {
+            "sources": sources,
+            "attempts": len(templates),
+            "sources_checked": len(sources),
+            "errors": errors,
+        }
+
+    output = {}
+    with ThreadPoolExecutor(max_workers=len(EDUCATION_FIELD_QUERIES)) as executor:
+        futures = [executor.submit(search_one_field, field) for field in EDUCATION_FIELD_QUERIES]
+        for future in as_completed(futures):
+            field, details = future.result()
+            output[field] = details
+    return output
+
 
 
 def _search_stage_education(stage: dict, company_name: str, seen_urls: set) -> list:

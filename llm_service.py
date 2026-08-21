@@ -44,7 +44,9 @@ def get_llm_config() -> dict:
     """
     provider = os.getenv("LLM_PROVIDER", "").lower().strip()
     if not provider:
-        if os.getenv("NVIDIA_API_KEY") or os.getenv("NIVIDA_API_KEY") or os.getenv("nvidia_api_key") or os.getenv("nividia_api_key"):
+        if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+            provider = "gemini"
+        elif os.getenv("NVIDIA_API_KEY") or os.getenv("NIVIDA_API_KEY") or os.getenv("nvidia_api_key") or os.getenv("nividia_api_key"):
             provider = "nvidia"
         elif os.getenv("USE_OLLAMA", "").lower() == "true":
             provider = "ollama"
@@ -84,6 +86,14 @@ def get_llm_config() -> dict:
             "Content-Type": "application/json"
         }
         endpoint = "https://api.openai.com/v1/chat/completions"
+    elif provider in ("gemini", "google"):
+        api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip().strip('"').strip("'")
+        model = os.getenv("GEMINI_MODEL") or os.getenv("GOOGLE_MODEL") or "gemini-3.6-flash"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     elif provider in ("nvidia", "nividia"):
         api_key = (os.getenv("NVIDIA_API_KEY") or os.getenv("NIVIDA_API_KEY") or os.getenv("nvidia_api_key") or os.getenv("nividia_api_key") or "").strip().strip('"').strip("'")
         model = os.getenv("NVIDIA_MODEL") or os.getenv("NIVIDA_MODEL") or "nvidia/nemotron-3-ultra-550b-a55b"

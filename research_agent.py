@@ -6,6 +6,7 @@ import io
 from search_tool import (
     search_company_csr_info,
     search_contact_sources,
+    search_education_fields,
     search_annual_report_pdf_via_screener,
     search_annual_report_pdf,
     get_financials_from_screener,
@@ -13,7 +14,8 @@ from search_tool import (
     search_unlisted_company_financials,
     search_person_linkedin,
 )
-from extraction_tool import extract_research_with_contact
+from extraction_tool import extract_research_with_contact, extract_education_fields
+from models import CompanyResearch
 from financial_extractor import (
     extract_csr_data,
     check_prospect_criteria,
@@ -24,9 +26,15 @@ from financial_extractor import (
 )
 from pdf_utils import extract_csr_section_text, _headers_for
 from error_utils import no_data_error
+from redis_cache import get_json, set_json, make_key
 
 
 def extract_pdf_text(pdf_url: str) -> str:
+    cache_key = make_key("pdf-text", pdf_url)
+    cached = get_json(cache_key)
+    if isinstance(cached, dict) and isinstance(cached.get("text"), str):
+        print(f"[PDF Cache] Hit: {pdf_url}")
+        return cached["text"]
     try:
         response = requests.get(pdf_url, headers=_headers_for(pdf_url), timeout=15)
         response.raise_for_status()
@@ -40,13 +48,14 @@ def extract_pdf_text(pdf_url: str) -> str:
             text = ""
             for page in pdf.pages[:10]:  # pehle 10 pages kaafi hain
                 text += page.extract_text() or ""
+        set_json(cache_key, {"text": text})
         return text
     except Exception as e:
         print(f"[PDF Error] PDF extraction failed: {e}")
         return ""
 
 
-from db import create_company, update_company
+from db import create_company, update_company, get_company
 from audit_logger import log_action
 
 from concurrent.futures import ThreadPoolExecutor
@@ -99,6 +108,45 @@ def research_company(company_id: str, company_name: str, website: str = None):
     print(f"[ResearchAgent] Gathered {len(sources)} sources for {company_name}")
 
     research, llm_error = extract_research_with_contact(company_name, sources)
+
+    # Dedicated education pass. Keep its audit evidence outside research_json,
+    # and preserve an already verified value if a later run is sparse or fails.
+    education_evidence = {}
+    education_error = None
+    try:
+        education_search = search_education_fields(company_name, website)
+        education_evidence, education_error = extract_education_fields(
+            company_name, education_search
+        )
+        if not education_error:
+            previous = get_company(company_id) or {}
+            previous_research = previous.get("research_json") or {}
+            merged = research.model_dump()
+            education_fields = (
+                "csr_stem_education",
+                "csr_school_infra_transformation",
+                "csr_holistic_transformation",
+                "csr_anganwadi_transformation",
+                "csr_quality_education",
+                "csr_model_school_transformation",
+            )
+            missing_values = {"", "not found", "not publicly available", "none", "n/a", "na"}
+            for field in education_fields:
+                new_value = education_evidence.get(field, {}).get("value", "Not Found")
+                old_value = previous_research.get(field, merged.get(field, "Not Found"))
+                new_status = education_evidence.get(field, {}).get("status")
+                if new_status == "found" or (
+                    new_status == "exhausted"
+                    and str(old_value).strip().lower() in missing_values
+                ):
+                    merged[field] = new_value
+                else:
+                    merged[field] = old_value
+            research = CompanyResearch(**merged)
+    except Exception as exc:
+        education_error = {"type": "education_search_failed", "message": str(exc)}
+        print(f"[Education Research Warning] Dedicated education pass failed: {exc}")
+
     source_urls = "; ".join([s["url"] for s in sources[:5] if s.get("url")])
 
     # Save to MongoDB. Agar LLM extraction API hi fail hui thi (sources mile the,
@@ -107,6 +155,8 @@ def research_company(company_id: str, company_name: str, website: str = None):
     update_fields = {
         "research_json": research.model_dump(),
         "status": "researched",
+        "education_fitment_evidence": education_evidence,
+        "education_fitment_error": education_error,
     }
     if llm_error:
         update_fields["last_error"] = llm_error
@@ -397,8 +447,3 @@ if __name__ == "__main__":
         json.dump(all_results, f, indent=2)
 
     print(f"\n[Done] {len(all_results)} companies saved to results/research_output.json")
-
-
-
-
-    

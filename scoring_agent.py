@@ -19,6 +19,8 @@ WEIGHTS = {
     "governance_quality": 0,
     "warm_connection": 0,
 }
+
+
 # WEIGHTS_NO_FINANCIALS = {
 #     "education_focus": 60,   # Absorbs spend_capacity weight
 #     "spend_capacity": 0,
@@ -316,7 +318,10 @@ def assign_category(final_score: int):
 def score_company(company_id: str):
     company = get_company(company_id)
     research = company.get("research_json", {})
-    ratings, ratings_error = rate_factors(research)
+    # One unified LLM call returns both factor ratings and program fitment.
+    # Reusing both results avoids sending the same research JSON through a
+    # second, duplicate fitment call.
+    ratings, program_fit, scoring_error = rate_scoring_and_fitment(research)
 
     # Hard financial prospect check (financial_extractor.check_prospect_criteria,
     # OR logic over turnover/net worth/net profit) overrides the LLM's qualitative
@@ -339,13 +344,21 @@ def score_company(company_id: str):
     # baat ka pata frontend/reviewer ko chal sake.
     final_score = calculate_final_score(ratings)
 
-    program_fit, fitment_error = rate_program_fitment(research)
-
-    # Category (Tier A/B/C) directly from the 0-100 score band (A>=85, B 30-84, C<30).
-    category, tier_reasoning = assign_category(final_score)
-
     # Ennoble Fitment = strongest overall program fit (prompt + guidelines).
     program_fit["Ennoble Fitment"] = best_program_fit(program_fit)
+
+    # A high general CSR score must not promote a company that has no usable
+    # fit with any Ennoble programme. Keep the numeric score for diagnostics,
+    # but remove it from Tier A/B/C and label it explicitly as not a fit.
+    overall_fit = program_fit["Ennoble Fitment"]
+    if overall_fit in ("High Fit", "Medium Fit"):
+        category, tier_reasoning = assign_category(final_score)
+    else:
+        category = "Not a Fit"
+        tier_reasoning = (
+            f"General CSR score is {final_score}/100, but overall Ennoble fitment is "
+            f"{overall_fit}; the company is excluded from Tier A/B/C."
+        )
 
     # Guidelines fit-check: decide the record stage (Prospect / Nurture / Enriched Data / Disqualified).
     decision = decide_record_stage(research, program_fit)
@@ -353,8 +366,6 @@ def score_company(company_id: str):
     # Pehla error jo mila (factor rating ya program fitment) - scoring_error field
     # mein save karte hain taaki caller/frontend "yeh score API failure ki wajah
     # se incomplete hai" dikha sake, "genuinely low score" ki jagah.
-    scoring_error = ratings_error or fitment_error
-
     update_company(company_id, {
         "score": final_score,               # internal hint only
         "tier": category,                   # kept for backward compatibility with table/warm-connect

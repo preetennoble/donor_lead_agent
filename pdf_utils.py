@@ -2,6 +2,7 @@ import io
 from urllib.parse import urlparse
 import requests
 import pdfplumber
+from redis_cache import get_json, set_json, make_key
 
 # Kai corporate sites (jaise infosys.com) bot-protection/WAF ke peeche hain jo
 # sirf User-Agent dekh ke bhi block kar dete hain agar request browser jaisi
@@ -72,6 +73,12 @@ def extract_csr_section_text(pdf_url: str, max_chars: int = 20000) -> str:
     shuru mein rakhte hain taaki max_chars truncation unhe kabhi na kaate,
     chahe narrative CSR content kitna bhi lamba kyun na ho.
     """
+    cache_key = make_key("csr-pdf", pdf_url, max_chars)
+    cached = get_json(cache_key)
+    if isinstance(cached, dict) and isinstance(cached.get("text"), str):
+        print(f"[PDF Cache] Hit: {pdf_url}")
+        return cached["text"]
+
     try:
         response = requests.get(pdf_url, headers=_headers_for(pdf_url), timeout=20)
         response.raise_for_status()
@@ -92,7 +99,9 @@ def extract_csr_section_text(pdf_url: str, max_chars: int = 20000) -> str:
                     weak_pages.append(page_text)
 
         combined = "\n".join(strong_pages + weak_pages)
-        return combined[:max_chars]
+        result_text = combined[:max_chars]
+        set_json(cache_key, {"text": result_text})
+        return result_text
 
     except Exception as e:
         print(f"[PDF Error] CSR section extraction failed: {e}")

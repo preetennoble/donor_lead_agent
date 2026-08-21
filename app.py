@@ -159,6 +159,7 @@ def run_company_pipeline(company_id, company_name, website):
         company_doc = get_company(company_id) or {}
         warning_fields = [
             ("last_error", "Research"),
+            ("education_fitment_error", "Education research"),
             ("financial_last_error", "Financials"),
             ("csr_extraction_error", "CSR extraction"),
             ("scoring_error", "Scoring"),
@@ -814,5 +815,4 @@ def stop_impersonating():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
 
