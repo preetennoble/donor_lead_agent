@@ -59,10 +59,10 @@ Company
 Use official company name.
 
 First Name
-Use the verified first name of the most relevant CSR, Sustainability, Foundation, ESG, Corporate Affairs, HR, or Leadership contact. LinkedIn may be used for this.
+Use the verified first name of the targeted contact (CSR Person, HR Head, CSR Committee Member, CEO, or Sustainability Lead). LinkedIn may be used for this.
 
 Last Name
-Use the verified last name of the most relevant CSR, Sustainability, Foundation, ESG, Corporate Affairs, HR, or Leadership contact. LinkedIn may be used for this.
+Use the verified last name of the targeted contact (CSR Person, HR Head, CSR Committee Member, CEO, or Sustainability Lead). LinkedIn may be used for this.
 
 Email
 Use only verified official email IDs from public company sources, CSR reports, foundation pages, or official documents. Do not guess.
@@ -92,13 +92,13 @@ Lead Status
 To be always marked as ' Fresh Lead '
 
 Designation.
-Use verified CSR, Sustainability, Foundation, Corporate Affairs, ESG, HR, or Leadership designation. LinkedIn may be used to verify the person’s current designation, but do not infer beyond what is shown publicly.
+Use verified designation for one of the 5 targeted roles: CSR Person (e.g. CSR Head/Manager), HR Head (e.g. Head HR/CHRO), CSR Committee Member, CEO/MD, or Sustainability Officer (e.g. Sustainability Head/CSO). LinkedIn may be used to verify the person’s current designation, but do not infer beyond what is shown publicly.
 
 LinkedIn Sourcing Rule for CSR Person
 
 For First Name, Last Name, and Designation, LinkedIn may be used as a sourcing reference.
 
-Priority order for identifying CSR contact:
+Priority order for identifying contact:
 
 Company CSR / Sustainability / Foundation page
 Annual Report / CSR Report / BRSR
@@ -107,7 +107,7 @@ Credible media / event / conference speaker profile
 
 Use LinkedIn only for:
 
-Name of CSR / Sustainability / Foundation / ESG / Corporate Affairs person
+Name of CSR person / HR Head / Committee Member / CEO / Sustainability Lead
 Current designation
 Company association
 

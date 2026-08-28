@@ -8,22 +8,24 @@ import os
 import threading
 import uuid
 from urllib.parse import urlparse
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from db import (
     get_all_companies, get_company, update_company, create_company, delete_company, delete_companies, companies_col,
-    create_user, get_user_by_username, get_user_by_id, get_all_users, update_user
+    create_user, get_user_by_username, get_user_by_id, get_all_users, update_user,
+    get_user_zoho_keys, update_user_zoho_keys
 )
 from auth import hash_password, verify_password, generate_random_password, login_required, admin_required
 from research_agent import research_company
 from compliance_agent import check_compliance
 from scoring_agent import score_company
-from contact_discovery_agent import find_decision_makers_apollo
+# from contact_discovery_agent import find_decision_makers_apollo  # Apollo disabled
 from audit_logger import log_action
 from pdf_service import generate_research_pdf, generate_research_filename
 # from email_service import send_research_pdf
-from email_service import send_research_excel
+from email_service import send_research_excel, send_combined_research_excel
 from zoho_upload import upload_company_to_zoho 
 from models import CompanyResearch
 from warm_connect_agent import find_warm_connect, recommend_outreach_channel
@@ -43,6 +45,23 @@ app.logger.setLevel(logger.level)
 def get_rate_limit_key():
     """Rate limit by logged-in username if available, otherwise by client IP address."""
     return session.get('username') or get_remote_address()
+
+
+def _prepare_committee_linkedin(company):
+    """Build a normalized lookup for committee-member LinkedIn URLs.
+
+    Older records may store the map inside csr_data, and names can differ only
+    by whitespace/capitalization from the extracted committee member name.
+    """
+    raw = company.get("committee_members_linkedin") or {}
+    if not raw:
+        raw = (company.get("csr_data") or {}).get("committee_members_linkedin") or {}
+    company["_committee_members_linkedin_lookup"] = {
+        str(name).strip().casefold(): url
+        for name, url in raw.items()
+        if url
+    }
+    return company
 
 limiter = Limiter(
     key_func=get_rate_limit_key,
@@ -95,7 +114,7 @@ MAX_ZOHO_BULK = 50
 # N companies fires N companies' worth of concurrent Tavily searches at once,
 # which blows through Tavily's rate limit even with the per-call semaphore in
 # search_tool.py (that one only caps instantaneous concurrency, not sustained rate).
-_pipeline_concurrency = threading.Semaphore(3)
+_pipeline_concurrency = threading.Semaphore(6)
 
 
 def set_pipeline_progress(company_id, stage, message, state="running", percent=0):
@@ -105,26 +124,20 @@ def set_pipeline_progress(company_id, stage, message, state="running", percent=0
             "message": message,
             "state": state,
             "percent": percent,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
 
-def run_company_pipeline(company_id, company_name, website):
-    """Run the existing pipeline in the background and report safe stage updates."""
+COMPANY_RESEARCH_TIMEOUT_SECONDS = int(os.getenv("COMPANY_RESEARCH_TIMEOUT_SECONDS", "300"))  # Default 5 mins (300 seconds)
+
+
+def _execute_company_pipeline_stages(company_id, company_name, website):
+    """Run sequential pipeline stages for a single company."""
     start_tracking()
-    # Blocks here (not before the thread starts) so bulk-uploaded companies still
-    # show up immediately with a "queued" status, but only _pipeline_concurrency
-    # many of them actually fire search/LLM calls at once - see the semaphore's
-    # definition above for why this is needed.
-    set_pipeline_progress(company_id, "queued", "Waiting for a free pipeline slot...", percent=8)
-    _pipeline_concurrency.acquire()
     try:
         set_pipeline_progress(company_id, "research", "Researching public company and CSR information.", percent=20)
         research = research_company(company_id, company_name, website)
         if not research:
-            # research_company() saves the real cause (API/DB/network failure vs.
-            # genuinely no data) as "last_error" on the company doc - surface that
-            # instead of a generic "not found" message.
             company_doc = get_company(company_id) or {}
             cause = company_doc.get("last_error") or {}
             message = cause.get("message", "Research could not return enough information.")
@@ -135,8 +148,6 @@ def run_company_pipeline(company_id, company_name, website):
         try:
             research_company_with_financials(company_id, company_name, website)
         except Exception as fin_error:
-            # Financial data is a bonus, not a blocker - a Screener miss/timeout
-            # shouldn't stop compliance/scoring from running.
             print(f"[Pipeline Warning] Financial research failed for {company_name}: {fin_error}")
 
         set_pipeline_progress(company_id, "compliance", "Checking eligibility and compliance signals.", percent=50)
@@ -147,15 +158,8 @@ def run_company_pipeline(company_id, company_name, website):
 
         set_pipeline_progress(company_id, "scoring", "Running fit-check and partnership assessment.", percent=75)
         score_result = score_company(company_id)
-        if score_result.get("record_stage") == "Prospect":
-            set_pipeline_progress(company_id, "contacts", "Finding relevant decision-makers for this Prospect lead.", percent=90)
-            find_decision_makers_apollo(company_name, website)
 
-        # Har stage apna khud ka error field save karta hai (last_error,
-        # financial_last_error, csr_extraction_error, scoring_error) - yahan sabko
-        # ek jagah collect karte hain taaki dashboard par ek hi "pipeline_warnings"
-        # list se pata chale ki pipeline "complete" hone ke baavjood kahin data
-        # API/rate-limit ki wajah se incomplete/degraded to nahi hai.
+        # Collect stage warnings
         company_doc = get_company(company_id) or {}
         warning_fields = [
             ("last_error", "Research"),
@@ -178,6 +182,39 @@ def run_company_pipeline(company_id, company_name, website):
             complete_message = "Pipeline complete. The lead is ready for review."
 
         set_pipeline_progress(company_id, "complete", complete_message, "complete", 100)
+    finally:
+        usage = get_tracked_usage()
+        if usage and usage.get("calls"):
+            update_company(company_id, {"token_usage_estimate": usage})
+            print(
+                f"[Token Usage] {company_name}: {usage['total_tokens']} tokens total "
+                f"({usage['prompt_tokens']} prompt + {usage['completion_tokens']} completion) "
+                f"across {usage['calls']} LLM calls"
+            )
+
+
+def run_company_pipeline(company_id, company_name, website):
+    """Run the existing pipeline in the background and enforce strict execution timeout."""
+    start_tracking()
+    # Blocks here (not before the thread starts) so bulk-uploaded companies still
+    # show up immediately with a "queued" status, but only _pipeline_concurrency
+    # many of them actually fire search/LLM calls at once.
+    set_pipeline_progress(company_id, "queued", "Waiting for a free pipeline slot...", percent=8)
+    _pipeline_concurrency.acquire()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_execute_company_pipeline_stages, company_id, company_name, website)
+            try:
+                future.result(timeout=COMPANY_RESEARCH_TIMEOUT_SECONDS)
+            except TimeoutError:
+                mins = COMPANY_RESEARCH_TIMEOUT_SECONDS // 60
+                print(f"[Pipeline Timeout] {company_name} exceeded {mins} minute(s) ({COMPANY_RESEARCH_TIMEOUT_SECONDS}s). Cancelling.")
+                timeout_msg = f"Research timed out (exceeded {mins} minutes). Process automatically stopped."
+                update_company(company_id, {
+                    "status": "failed_research",
+                    "last_error": {"type": "timeout", "message": timeout_msg}
+                })
+                set_pipeline_progress(company_id, "error", timeout_msg, "error", 100)
     except Exception as error:
         print(f"[Pipeline Error] {company_name}: {error}")
         cause = classify_error(error)
@@ -207,6 +244,7 @@ def dashboard():
         print(f"[Dashboard Error] Database exception: {e}")
 
     for c in companies:
+        _prepare_committee_linkedin(c)
         c["id_str"] = str(c["_id"])
         # Ensure all template-accessed keys have safe defaults to prevent UndefinedError
         if "score" not in c:
@@ -233,6 +271,7 @@ def company_detail(company_id):
     c = get_company(company_id)
     if not c:
         abort(404)
+    _prepare_committee_linkedin(c)
     c["id_str"] = str(c["_id"])
     # Ensure all template-accessed keys have safe defaults to prevent UndefinedError
     if "score" not in c:
@@ -272,6 +311,7 @@ def add_company():
 
 
 MAX_BULK_ROWS = 200
+MAX_EMAIL_BULK = 50
 
 @app.route("/research/financial", methods=["POST"])
 @login_required
@@ -368,18 +408,53 @@ def research_progress(company_id):
     with pipeline_jobs_lock:
         progress = pipeline_jobs.get(company_id)
     if not progress:
-        return jsonify({"status": "error", "message": "Progress information is unavailable."}), 404
+        # Progress is held in memory, so it disappears if the app process is
+        # restarted. Fall back to the persisted company record so bulk polling
+        # does not turn an existing company into a 404 after a refresh/restart.
+        company = get_company(company_id)
+        if not company:
+            return jsonify({"status": "error", "message": "Company not found."}), 404
+
+        saved_status = company.get("status")
+        if saved_status in ("researched", "scored"):
+            progress = {
+                "stage": "complete",
+                "message": "Research already completed. Open the company to review it.",
+                "state": "complete",
+                "percent": 100,
+            }
+        elif saved_status == "failed_research":
+            cause = company.get("last_error") or {}
+            progress = {
+                "stage": "research",
+                "message": cause.get("message", "Research failed for this company."),
+                "state": "error",
+                "percent": 100,
+            }
+        else:
+            progress = {
+                "stage": "queued",
+                "message": "Progress was interrupted. Open the company or start its research again.",
+                "state": "error",
+                "percent": 0,
+            }
     return jsonify(progress)
 
 @app.route("/approve/<company_id>", methods=["POST"])
 @login_required
 def approve_company(company_id):
+    company = get_company(company_id)
+    if not company or company.get("tier") != "Tier C":
+        return redirect(url_for("dashboard"))
     update_company(company_id, {"approval_status": "approved", "approved_by": session.get("username")})
     return redirect(url_for("dashboard"))
 
 @app.route("/reject/<company_id>", methods=["POST"])
 @login_required
 def reject_company(company_id):
+    company = get_company(company_id)
+    if not company or company.get("tier") != "Tier C":
+        return redirect(url_for("dashboard"))
     update_company(company_id, {"approval_status": "rejected"})
     return redirect(url_for("dashboard"))
 
@@ -400,12 +475,37 @@ def remove_companies_bulk():
     deleted = delete_companies(company_ids)
     return jsonify({"deleted": deleted, "requested": len(company_ids)})
 
-# Zoho CRM integration is commented out/disabled as per user request
+@app.route("/settings/zoho", methods=["GET", "POST"])
+@login_required
+def settings_zoho():
+    username = session.get("username")
+    if request.method == "POST":
+        client_id = request.form.get("client_id", "").strip()
+        client_secret = request.form.get("client_secret", "").strip()
+        refresh_token = request.form.get("refresh_token", "").strip()
+        api_domain = request.form.get("api_domain", "https://www.zohoapis.in").strip()
+        accounts_url = request.form.get("accounts_url", "https://accounts.zoho.in").strip()
+
+        zoho_keys = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "api_domain": api_domain,
+            "accounts_url": accounts_url,
+        }
+        update_user_zoho_keys(username, zoho_keys)
+        return render_template("settings_zoho.html", success="Your personal Zoho CRM API credentials have been saved!", zoho_keys=zoho_keys)
+
+    zoho_keys = get_user_zoho_keys(username)
+    return render_template("settings_zoho.html", zoho_keys=zoho_keys)
+
+
 @app.route("/upload-crm/<company_id>", methods=["POST"])
 @login_required
 def upload_crm(company_id):
-    upload_company_to_zoho(company_id)
-    update_company(company_id, {"crm_uploaded_by": session.get("username")})
+    username = session.get("username")
+    upload_company_to_zoho(company_id, username=username)
+    update_company(company_id, {"crm_uploaded_by": username}, username=username)
     return redirect(url_for("dashboard"))
 
 
@@ -419,15 +519,15 @@ def run_bulk_zoho_upload(job_id, company_ids, uploaded_by):
         }
 
     for company_id in company_ids:
-        company = get_company(company_id)
+        company = get_company(company_id, username=uploaded_by) if uploaded_by else get_company(company_id)
         company_name = company.get("company_name") if company else company_id
 
         if not company:
             result = {"status": "error", "message": "Company not found in database"}
         else:
-            result = upload_company_to_zoho(company_id)
+            result = upload_company_to_zoho(company_id, username=uploaded_by)
             if result.get("status") in ("success", "simulated"):
-                update_company(company_id, {"crm_uploaded_by": uploaded_by})
+                update_company(company_id, {"crm_uploaded_by": uploaded_by}, username=uploaded_by)
 
         with zoho_bulk_jobs_lock:
             job = zoho_bulk_jobs[job_id]
@@ -581,6 +681,30 @@ def email_research(company_id):
             
     except Exception as e:
         print(f"[Error] Email sending failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/email-research-bulk", methods=["POST"])
+@login_required
+def email_research_bulk():
+    try:
+        payload = request.get_json(silent=True) or {}
+        company_ids = [cid for cid in (payload.get("company_ids") or []) if cid]
+        recipient_email = (payload.get("recipient_email") or "").strip()
+        recipient_name = (payload.get("recipient_name") or "").strip()
+        if not company_ids:
+            return jsonify({"status": "error", "message": "Select at least one company."}), 400
+        if len(company_ids) > MAX_EMAIL_BULK:
+            return jsonify({"status": "error", "message": f"Select at most {MAX_EMAIL_BULK} companies."}), 400
+        if not recipient_email:
+            return jsonify({"status": "error", "message": "Email address required."}), 400
+
+        result = send_combined_research_excel(company_ids, recipient_email, recipient_name)
+        if result["success"]:
+            return jsonify({"status": "success", "message": result["message"]})
+        return jsonify({"status": "error", "message": result["message"]}), 500
+    except Exception as e:
+        print(f"[Error] Bulk email sending failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/warm-connect/<company_id>", methods=["POST"])
@@ -815,4 +939,3 @@ def stop_impersonating():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-

@@ -19,10 +19,7 @@ tavily = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 _tavily_semaphore = threading.Semaphore(3)  # Rate limit to ~3 concurrent Tavily calls
 
 INDIA_DOMAINS = [".in", "india.", "bharat.", "gov.in", "mca.gov.in"]
-# CSRBOX is an India-focused CSR/NGO research directory even though it uses a
-# .org domain. Keep it in the India-source allowlist so domain-restricted
-# searches are not discarded by the country relevance filter.
-INDIA_SOURCE_DOMAINS = ["csrbox.org"]
+INDIA_SOURCE_DOMAINS = ["csrbox.org", "linkedin.com", "zaubacorp.com", "tofler.in"]
 NON_INDIA_INDICATORS = ["usa.", "uk.", "america.", "global", "worldwide", "en.wikipedia"]
 
 def _is_india_result(url: str, content: str = "") -> bool:
@@ -30,7 +27,6 @@ def _is_india_result(url: str, content: str = "") -> bool:
     url_lower = url.lower()
     content_lower = content.lower()
 
-    # Positive signals for India
     for domain in INDIA_DOMAINS:
         if domain in url_lower:
             return True
@@ -39,13 +35,15 @@ def _is_india_result(url: str, content: str = "") -> bool:
         if domain in url_lower:
             return True
 
-    # Negative signals (non-India)
     for indicator in NON_INDIA_INDICATORS:
         if indicator in url_lower:
             return False
 
-    # Check content for India mentions
-    india_keywords = ["india", "indian", "mumbai", "delhi", "bengaluru", "hyderabad"]
+    india_keywords = [
+        "india", "indian", "mumbai", "delhi", "bengaluru", "hyderabad", "pune",
+        "gurgaon", "noida", "chennai", "kolkata", "ahmedabad", "gurugram",
+        "maharashtra", "karnataka", "gujarat", "tamil nadu", "telangana", "haryana", "uttar pradesh"
+    ]
     if any(keyword in content_lower for keyword in india_keywords):
         return True
 
@@ -53,8 +51,7 @@ def _is_india_result(url: str, content: str = "") -> bool:
 
 
 def _recent_indian_fiscal_years(count: int = 3) -> list:
-    """Indian FY runs Apr-Mar, e.g. 'FY25' = Apr 2024-Mar 2025.
-    Returns the `count` most recently completed FY labels as of today, newest first."""
+    """Indian FY runs Apr-Mar, e.g. 'FY25' = Apr 2024-Mar 2025."""
     today = date.today()
     latest_completed_fy_end_year = today.year if today.month >= 4 else today.year - 1
     return [f"FY{str(latest_completed_fy_end_year - i)[-2:]}" for i in range(count)]
@@ -82,7 +79,6 @@ def _serper_search(query: str, max_results: int = 5) -> dict:
     data = resp.json()
 
     results = []
-    # Knowledge Graph
     kg = data.get("knowledgeGraph") or {}
     if kg.get("description"):
         desc = f"{kg.get('title', '')}: {kg.get('description', '')}"
@@ -93,7 +89,6 @@ def _serper_search(query: str, max_results: int = 5) -> dict:
             "raw_content": desc
         })
 
-    # Organic search results
     for item in data.get("organic", []):
         snippet = item.get("snippet", "")
         sitelinks = " ".join([s.get("snippet", "") for s in item.get("sitelinks", []) if s.get("snippet")])
@@ -141,7 +136,6 @@ def _execute_search(query: str, max_results: int = 5, include_raw_content: bool 
     else:
         result = _tavily_search_with_limit(query, max_results=max_results, include_raw_content=include_raw_content)
 
-    # Cache successful responses only; failed calls must remain retryable.
     set_json(cache_key, result)
     return result
 
@@ -155,7 +149,6 @@ def _search_stage_contact(stage: dict):
             url = r.get("url", "")
             text = r.get("raw_content") or r.get("content", "")
 
-            # Filter for India-specific results
             if not _is_india_result(url, text):
                 continue
 
@@ -172,52 +165,32 @@ def _search_stage_contact(stage: dict):
         return [], classify_error(e)
 
 
-def search_contact_sources(company_name:str, website: str= None)-> dict:
-    """ priority order follow karta hai:
-    1. company csr/foundation page
-    2. Annual Report / CSR Report/BRSR
-    3. LinkdIn
-    4. Media/event profile
-    """
-    domain = urlparse(website).netloc.replace("www.","") if website else None
+def search_contact_sources(company_name: str, website: str = None) -> dict:
+    """ Target query design for contacts: company name + CSR Head / Sustainability / Head HR / CEO / HR / MD / Founder """
+    domain = urlparse(website).netloc.replace("www.", "") if website else None
     collected = []
 
     search_stages = [
+        # 1. Direct Company Website Search
         {
-            "priority" : 1,
-            "source_type" : "company_website",
-            "query" : f"site:{domain} India CSR Head Sustainability Head contact" if domain else f"{company_name} India CSR Head Sustainability Head contact"
+            "priority": 1,
+            "source_type": "company_website",
+            "query": f'site:{domain} ("CSR Head" OR "Sustainability" OR "Head HR" OR "HR Head" OR "CEO" OR "HR" OR contact OR leadership)' if domain else f'"{company_name}" ("CSR Head" OR "Sustainability" OR "Head HR" OR "HR Head" OR "CEO" OR "HR" OR contact)',
         },
-
+        # 2. LinkedIn Leadership Profile Search
         {
-            "priority" : 2,
-            "source_type" : "CSRBOX",
-            "query" : f"site:csrbox.org {company_name} CSR foundation NGO education contact",
+            "priority": 2,
+            "source_type": "LinkedIn",
+            "query": f'site:linkedin.com/in "{company_name}" ("CSR Head" OR "Head of CSR" OR "CSR Lead" OR "Sustainability" OR "Sustainability Head" OR "Head HR" OR "HR Head" OR "CHRO" OR "CEO" OR "Managing Director" OR "HR" OR "Founder")',
         },
-
+        # 3. Directories, MCA Filings & CSRBOX Contact Search
         {
-            "priority" : 2,
-            "source_type" : "Annual Report",
-            "query": f"{company_name} India CSR committee member annual report BRSR"
-        },
-        {
-            "priority" : 3,
-            "source_type" : "LinkedIn",
-            "query": f"site:linkedin.com/in {company_name} India CSR OR Sustainability OR ESG Head"
-        },
-        {
-            "priority": 4,
-            "source_type": "Media/Event",
-            "query": f"{company_name} India CSR Head speaker conference interview"
-        },
-        {
-            "priority": 5,
-            "source_type": "Foundation",
-            "query": f"{company_name} India foundation CSR contact"
+            "priority": 3,
+            "source_type": "Registry & Annual Report",
+            "query": f'"{company_name}" ("CSR Head" OR "Sustainability" OR "Head HR" OR "HR Head" OR "CEO" OR "HR" OR "Managing Director" OR "CSR Committee") ("contact" OR email OR Zaubacorp OR Tofler OR "annual report" OR site:csrbox.org)',
         },
     ]
 
-    # Run all search stages concurrently
     errors = []
     with ThreadPoolExecutor(max_workers=len(search_stages)) as executor:
         futures = {executor.submit(_search_stage_contact, stage): stage for stage in search_stages}
@@ -227,8 +200,6 @@ def search_contact_sources(company_name:str, website: str= None)-> dict:
             if error:
                 errors.append(error)
 
-    # Sirf tab "error" flag karte hain jab EK bhi stage successfully result nahi de payi
-    # AUR wo failures thi (exceptions), na ki genuinely-empty clean searches.
     result = {"sources": collected}
     if not collected and errors:
         result["error"] = errors[0]
@@ -236,11 +207,7 @@ def search_contact_sources(company_name:str, website: str= None)-> dict:
 
 
 def search_person_linkedin(person_name: str, company_name: str) -> str:
-    """Best-effort LinkedIn profile search for a named person (e.g. a CSR Committee
-    Member pulled from an annual report PDF, which has no links in it). Name-based
-    matching is inherently fuzzy - common names can return the wrong profile - so
-    callers must treat the result as an UNVERIFIED match, not a confirmed identity.
-    Returns the LinkedIn URL, or None if no linkedin.com/in/ result was found."""
+    """Best-effort LinkedIn profile search for a named person."""
     if not person_name or not person_name.strip():
         return None
     query = f'"{person_name}" "{company_name}" site:linkedin.com/in'
@@ -266,7 +233,6 @@ def _search_stage_csr(stage: dict, company_name: str, seen_urls: set):
             url = r.get("url", "")
             text = r.get("raw_content") or r.get("content", "")
 
-            # Filter for India-specific results
             if not _is_india_result(url, text):
                 continue
 
@@ -281,70 +247,25 @@ def _search_stage_csr(stage: dict, company_name: str, seen_urls: set):
 
 
 def search_company_csr_info(company_name: str, website: str = None):
-    """ Multi-stage search covering the CSR data fields the Lead Fitment Guidelines
-    (Table 1: 'Field | What to Check') expect a reviewer to be able to verify -
-    education spend, the 3-year spend trend, unspent CSR amount, implementation
-    partners, and CSR governance/compliance disclosures - not just a single
-    generic query. """
+    """ Multi-stage search covering CSR data fields """
     domain = urlparse(website).netloc.replace("www.", "") if website else None
 
     csr_stages = [
-        # CSRBOX is a dedicated Indian CSR/NGO directory and often contains
-        # program, partner, geography, and beneficiary details that do not
-        # appear on a company's own website.
-        {
-            "priority": 1,
-            "source_type": "CSRBOX",
-            "query": f"site:csrbox.org {company_name} CSR education school NGO project foundation",
-        },
-
-        # 1. CSR Spend & Financial Capacity (highest priority - needed for scoring)
         {
             "priority": 1,
             "source_type": "Financial / CSR",
-            "query": f"{company_name} CSR spend obligation unspent amount {' '.join(_recent_indian_fiscal_years())} annual report BRSR",
+            "query": f'"{company_name}" CSR ("total CSR expenditure" OR "CSR spend" OR "CSR obligation" OR "unspent amount" OR "amount spent") (crore OR lakh)  ("FY25" OR "FY 2024-25" OR "FY24" OR "FY 2023-24" OR "FY23") {" ".join(_recent_indian_fiscal_years())} ("annual report" OR BRSR OR site:csrbox.org)',
         },
-
-        # 2. STEM & Digital Learning Fitment
         {
             "priority": 1,
-            "source_type": "STEM Education",
-            "query": f"{company_name} CSR STEM science lab robotics coding digital learning computer education skill development technology",
+            "source_type": "CSR Overview",
+            "query": f'"{company_name}" CSR (education OR school OR foundation OR "CSR project") (STEM OR infrastructure OR Anganwadi OR scholarship)',
         },
-
-        # 3. Quality Education & Teacher Training
-        {
-            "priority": 1,
-            "source_type": "Quality Education",
-            "query": f"{company_name} CSR quality education scholarships teacher training learning outcomes foundational literacy school program students",
-        },
-
-        # 4. School Infrastructure & Holistic School Transformation
+        # 3. Implementation Partners & Operational Geography
         {
             "priority": 2,
-            "source_type": "School Infrastructure",
-            "query": f"{company_name} CSR school infrastructure classroom renovation sanitation toilets drinking water school transformation school building",
-        },
-
-        # 5. Anganwadi & Early Childhood Development
-        {
-            "priority": 2,
-            "source_type": "Anganwadi Fitment",
-            "query": f"{company_name} CSR Anganwadi early childhood education preschool balwadi maternal child health nutrition pre-primary",
-        },
-
-        # 6. Implementation Partners & Foundations
-        {
-            "priority": 3,
-            "source_type": "Implementation Partners",
-            "query": f"{company_name} CSR NGO implementation partner foundation education schools project",
-        },
-
-        # 7. Operational Geography & Beneficiaries
-        {
-            "priority": 3,
-            "source_type": "Geography",
-            "query": f"{company_name} CSR project locations districts states beneficiaries schools area of operation",
+            "source_type": "Partners & Geography",
+            "query": f'"{company_name}" CSR ("implementation partner" OR "implementation agency" OR "NGO partner" OR "executing agency" OR "foundation partner" OR "collaborating NGO") (education OR school OR NGO OR foundation OR beneficiaries)',
         },
     ]
 
@@ -352,7 +273,6 @@ def search_company_csr_info(company_name: str, website: str = None):
     seen_urls = set()
     errors = []
 
-    # Run all CSR search stages concurrently
     with ThreadPoolExecutor(max_workers=len(csr_stages)) as executor:
         futures = {executor.submit(_search_stage_csr, stage, company_name, seen_urls): stage for stage in csr_stages}
         for future in as_completed(futures):
@@ -380,20 +300,17 @@ SCREENER_HEADERS = {
 }
 
 
-def find_company_on_screener(company_name: str):
-    """
-    Screener.in ke apne search API se company dhundna (site: search nahi -
-    direct Screener endpoint, isliye zyada accurate hai)
+def _normalize_screener_company_name(company_name: str) -> str:
+    """Remove periods that commonly appear in legal suffixes (for example LTD.)."""
+    return re.sub(r"\s+", " ", (company_name or "").replace(".", "")).strip()
 
-    Returns (company_or_None, error_or_None):
-      - (dict, None)  -> mil gaya: {"name": "...", "url": "https://www.screener.in/company/TCS/consolidated/"}
-      - (None, None)  -> search successful thi, genuinely koi company nahi mili
-      - (None, error) -> search hi fail ho gayi (network/API/blocked)
-    """
+
+def find_company_on_screener(company_name: str):
     try:
+        screener_query = _normalize_screener_company_name(company_name)
         response = requests.get(
             "https://www.screener.in/api/company/search/",
-            params={"q": company_name},
+            params={"q": screener_query},
             headers=SCREENER_HEADERS,
             timeout=10
         )
@@ -414,40 +331,20 @@ def find_company_on_screener(company_name: str):
         return None, classify_error(e)
 
 
-# BSE/NSE PDFs are regulatory filings hosted on the exchange's own servers - they
-# almost never block scrapers. Company-website-hosted copies (often WordPress +
-# Cloudflare/WAF, like eClerx's) are far more likely to 403 a non-browser request.
 _RELIABLE_REPORT_HOSTS = ("bseindia.com", "nseindia.com")
 
 
 def _host_reliability_rank(href: str) -> int:
-    """Lower rank = try first. Exchange-hosted PDFs rank above everything else."""
     host = urlparse(href).netloc.lower()
     return 0 if any(reliable in host for reliable in _RELIABLE_REPORT_HOSTS) else 1
 
 
 def get_annual_report_pdfs_by_year(screener_url: str) -> dict:
-    """
-    Screener ke Documents section se saare annual report PDF links ko unke
-    financial year ke saath map karke return karta hai.
-
-    Screener ek hi saal ke liye MULTIPLE sources list kar sakta hai (jaise
-    "Financial Year 2021 from bse" aur "Financial Year 2021 from web") - sabko
-    candidate list mein rakhte hain (single URL discard nahi karte), taaki agar
-    ek source block/fail ho jaaye to caller doosra try kar sake. Har saal ke
-    candidates reliability se sort hote hain - BSE/NSE (regulatory filing,
-    rarely blocked) pehle, company-website copies baad mein.
-
-    Returns: {2026: ["https://bseindia.../...pdf", "https://company.com/...pdf"], ...}
-    """
     try:
         response = requests.get(screener_url, headers=SCREENER_HEADERS, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, "html.parser")
 
-        # "Documents" is a <section id="documents">; the Annual Reports column inside
-        # it carries class "annual-reports" - scope to that so we don't grab a
-        # Credit Rating or Concall Transcript PDF by mistake.
         documents_section = soup.find("section", id="documents")
         if not documents_section:
             print("[Screener] Documents section nahi mila is page pe")
@@ -478,11 +375,6 @@ def get_annual_report_pdfs_by_year(screener_url: str) -> dict:
 
 
 def get_annual_report_pdf_from_screener(screener_url: str) -> str:
-    """
-    Screener se sabse recent (latest year) Annual Report PDF link nikalna
-    (available candidates mein se sabse reliable wala). (get_annual_report_pdfs_by_year
-    ke upar patla wrapper.)
-    """
     year_map = get_annual_report_pdfs_by_year(screener_url)
     if not year_map:
         print("[Screener] Is page par koi annual report PDF nahi mila")
@@ -494,35 +386,6 @@ def get_annual_report_pdf_from_screener(screener_url: str) -> str:
 
 
 def search_annual_report_pdf_via_screener(company_name: str) -> dict:
-    """
-    Poora Screener flow: company dhundo -> uska page scrape karo -> annual report
-    PDFs (year-wise) nikalo.
-
-    Latest report ke saath-saath PREVIOUS completed financial year ka report bhi
-    return karte hain, kyunki CSR/education spend usually pichhle poore-settle hue
-    saal (FY-1) ka dekhna zyada reliable hota hai (current year ka report abhi-abhi
-    aata hai aur sector-wise data adhoora ho sakta hai).
-
-    "pdf_url"/"previous_year_pdf_url" ab har saal ke sabse RELIABLE candidate
-    (BSE/NSE agar available ho) ko point karte hain. Poori candidate list bhi
-    return karte hain (*_candidates) taaki caller, agar best candidate fetch
-    fail ho jaaye (403/blocked/etc), doosra source try kar sake bina us saal
-    ka CSR data poora skip kiye.
-
-    Returns:
-    {
-        "screener_url": ...,
-        "pdf_url": <latest year, most-reliable report or None>,
-        "pdf_url_candidates": [<latest year ke saare sources, reliability-ordered>],
-        "latest_year": <int or None>,
-        "previous_year": <int or None>,
-        "previous_year_pdf_url": <FY-1, most-reliable report or None>,
-        "previous_year_pdf_url_candidates": [<FY-1 ke saare sources, reliability-ordered>],
-        "pdf_url_by_year": {2026: [...], 2025: [...]},
-        "error": <classified error dict, only present agar company search hi fail ho gayi>
-    }
-    ya None agar company genuinely Screener pe nahi mili (koi error nahi thi).
-    """
     company, error = find_company_on_screener(company_name)
     if not company:
         return {"error": error} if error else None
@@ -533,7 +396,6 @@ def search_annual_report_pdf_via_screener(company_name: str) -> dict:
     latest_candidates = year_map.get(latest_year, []) if latest_year is not None else []
     pdf_url = latest_candidates[0] if latest_candidates else None
 
-    # Previous completed FY = latest se ek saal peeche (agar available ho)
     previous_year = None
     previous_candidates = []
     if latest_year is not None:
@@ -557,115 +419,50 @@ def search_annual_report_pdf_via_screener(company_name: str) -> dict:
 
 
 def search_education_spend_data(company_name: str, website: str = None) -> dict:
-    """
-    Search specifically for company ke education CSR spend data aur percentage breakdown.
-    Ye search education ke specific queries use karta hai taaki education spend
-    ka historical data aur percentage mila sake.
-    """
-    domain = urlparse(website).netloc.replace("www.", "") if website else None
+    """[DISABLED to save 4 search credits per company]"""
+    return {"education_sources": []}
 
-    education_stages = [
-        {
-            "query": f"{company_name} India CSR education spend percentage breakup BRSR",
-            "source_type": "Education Spend Percentage"
-        },
-        {
-            "query": f"{company_name} India CSR education allocation budget schools colleges scholarship",
-            "source_type": "Education Program Budget"
-        },
-        {
-            "query": f"site:{domain} India CSR education spend annual report" if domain else f"{company_name} India CSR education spend annual report",
-            "source_type": "Company Website Education"
-        },
-        {
-            "query": f"{company_name} India CSR education focus area percentage allocation BRSR CSR report",
-            "source_type": "BRSR Education Metrics"
-        },
-    ]
-
-    collected = []
-    seen_urls = set()
-
-    # Run education search stages concurrently
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(_search_stage_education, stage, company_name, seen_urls): stage
-            for stage in education_stages
-        }
-        for future in as_completed(futures):
-            results = future.result()
-            collected.extend(results)
-
-    return {"education_sources": collected}
-
+# def search_education_spend_data(company_name: str, website: str = None) -> dict:
+#     domain = urlparse(website).netloc.replace("www.", "") if website else None
+#     education_stages = [
+#         {"query": f"{company_name} India CSR education spend percentage breakup BRSR", "source_type": "Education Spend Percentage"},
+#         {"query": f"{company_name} India CSR education allocation budget schools colleges scholarship", "source_type": "Education Program Budget"},
+#         {"query": f"site:{domain} India CSR education spend annual report" if domain else f"{company_name} India CSR education spend annual report", "source_type": "Company Website Education"},
+#         {"query": f"{company_name} India CSR education focus area percentage allocation BRSR CSR report", "source_type": "BRSR Education Metrics"},
+#     ]
+#     collected = []
+#     seen_urls = set()
+#     with ThreadPoolExecutor(max_workers=4) as executor:
+#         futures = {executor.submit(_search_stage_education, stage, company_name, seen_urls): stage for stage in education_stages}
+#         for future in as_completed(futures):
+#             collected.extend(future.result())
+#     return {"education_sources": collected}
 
 EDUCATION_FIELD_QUERIES = {
-     # 2. STEM Education
     "csr_stem_education": [
-        "{company} CSR STEM science mathematics technology education",
-        "{company} CSR science lab computer lab digital learning coding robotics Ai artificail intelligence",
-        "{company} CSR STEM project science technology students school",
-        "{company} CSR Atal Tinkering Lab innovation lab AI technology education",
+        '{company} CSR (STEM OR "science lab" OR "computer lab" OR "digital learning" OR robotics OR coding OR "Atal Tinkering Lab" OR AI )',
     ],
-
-    # 3. School Infrastructure
     "csr_school_infra_transformation": [
-        "{company} CSR school infrastructure classroom renovation government school",
-        "{company} CSR school toilets sanitation drinking water WASH",
-        "{company} CSR school building construction renovation furniture facilities",
-        "{company} CSR smart classroom digital classroom school infrastructure",
+        '{company} CSR ("school infrastructure" OR "school playground equipments" OR "classroom renovation" OR sanitation OR "drinking water" OR "smart classroom" OR "school building" OR "library")',
     ],
-
-    # 4. Holistic School Transformation
     "csr_holistic_transformation": [
-        "{company} CSR school transformation school development programme",
-        "{company} CSR whole school comprehensive school development",
-        "{company} CSR school adoption government school improvement",
-        "{company} CSR integrated school education teacher infrastructure development",
+        '{company} CSR ("school transformation" OR "whole school" OR "comprehensive school" OR "school adoption" OR "integrated school" OR "holistic school")',
     ],
-
-    # 5. Anganwadi / Early Childhood
     "csr_anganwadi_transformation": [
-        "{company} CSR Anganwadi transformation development infrastructure",
-        "{company} CSR Anganwadi centre preschool Balwadi education",
-        "{company} CSR early childhood education development learning",
-        "{company} CSR child nutrition preschool maternal child development",
+        '{company} CSR (Anganwadi OR "early childhood" OR Balwadi OR preschool OR "child nutrition" OR "maternal child")',
     ],
-
-    # 6. Quality Education
     "csr_quality_education": [
-        "{company} CSR quality education learning outcomes teacher training",
-        "{company} CSR literacy numeracy foundational learning remedial education",
-        "{company} CSR scholarship students education support underprivileged children",
-        "{company} CSR teacher development student learning academic improvement",
-        "{company} CSR career guidance mentoring vocational education students",
+        '{company} CSR ("quality education" OR "learning outcomes" OR "teacher training" OR literacy OR numeracy OR scholarships OR "remedial education")',
     ],
-
-    # 7. Model School
     "csr_model_school_transformation": [
-        "{company} CSR model school government school upgrade",
-        "{company} CSR government school transformation school upgradation",
-        "{company} CSR district school development model school",
-        "{company} CSR school excellence cluster schools education transformation",
+        '{company} CSR ("model school" OR "adarsh vidyalaya" OR "PM SHRI" OR "school upgradation" OR "cluster schools" OR "government school upgrade" OR "flagship school")',
     ],
-
-    # 8. Education Project Validation
     "csr_education_validation": [
-        "{company} CSR education beneficiaries schools students location",
-        "{company} CSR education project amount spent implementation partner",
-        "{company} CSR education NGO foundation project annual report",
-        "{company} CSR education FY25 FY24 FY23 annual report BRSR",
+        '{company} CSR education "annual report" (BRSR OR "amount spent" OR "implementation partner" OR beneficiaries)',
     ],
 }
 
-
 def search_education_fields(company_name: str, website: str = None) -> dict:
-    """Dedicated search pass for the six education fitment fields.
-
-    Each field gets its own query set and source list.  This prevents contact,
-    financial, or generic CSR results from consuming the education evidence
-    budget in the general extraction prompt.
-    """
     domain = urlparse(website).netloc.replace("www.", "") if website else ""
 
     def search_one_field(field):
@@ -712,9 +509,7 @@ def search_education_fields(company_name: str, website: str = None) -> dict:
     return output
 
 
-
 def _search_stage_education(stage: dict, company_name: str, seen_urls: set) -> list:
-    """Execute a single education search stage, return filtered results."""
     print(f"[Search] Education - {company_name}: {stage['query']}")
     try:
         results = _execute_search(stage["query"], max_results=5, include_raw_content=True)
@@ -723,7 +518,6 @@ def _search_stage_education(stage: dict, company_name: str, seen_urls: set) -> l
             url = r.get("url", "")
             text = r.get("raw_content") or r.get("content", "")
 
-            # Filter for India-specific results
             if not _is_india_result(url, text):
                 continue
 
@@ -742,10 +536,6 @@ def _search_stage_education(stage: dict, company_name: str, seen_urls: set) -> l
 
 
 def search_annual_report_pdf(company_name: str, website: str = None) -> str:
-    """
-    Fallback: general web search se annual report PDF dhundna
-    (jab Screener se PDF na mile tab use hota hai)
-    """
     try:
         domain = urlparse(website).netloc.replace("www.", "") if website else None
 
@@ -767,7 +557,6 @@ def search_annual_report_pdf(company_name: str, website: str = None) -> str:
 
 
 def _parse_screener_number(text: str):
-    """'255,324' -> 255324, '-124' -> -124, '' or '-' -> None"""
     cleaned = text.replace(",", "").strip()
     if not cleaned or cleaned == "-":
         return None
@@ -778,7 +567,6 @@ def _parse_screener_number(text: str):
 
 
 def _column_header_to_fy_label(header: str) -> str:
-    """'Mar 2026' -> 'FY26'; anything else (e.g. 'TTM') returned as-is"""
     parts = header.strip().split()
     if len(parts) == 2 and parts[1].isdigit():
         return f"FY{parts[1][-2:]}"
@@ -786,11 +574,6 @@ def _column_header_to_fy_label(header: str) -> str:
 
 
 def _extract_screener_table_row(table, row_label: str) -> dict:
-    """
-    Screener P&L/Balance Sheet table mein se ek specific row (e.g. 'Sales',
-    'Profit before tax') dhundh kar {fy_label: value} return karta hai.
-    TTM column skip ho jaata hai kyunki wo ek full fiscal year nahi hai.
-    """
     rows = table.find_all("tr")
     if not rows:
         return {}
@@ -815,24 +598,6 @@ def _extract_screener_table_row(table, row_label: str) -> dict:
 
 
 def get_financials_from_screener(screener_url: str, years: int = 3) -> dict:
-    """
-    Screener ke Profit & Loss aur Balance Sheet tables se seedha turnover,
-    PBT, net profit, aur net worth nikalna. Ye numbers already structured
-    HTML tables mein hain, isliye ek 300+ page PDF ko LLM se parse karwane
-    se zyada fast aur accurate hai.
-
-    Net Worth = Equity Capital + Reserves (Balance Sheet se, kyunki Screener
-    'net worth' ki alag row nahi deta).
-
-    Returns most recent `years` completed fiscal years, newest first:
-    {
-        "turnover": {"FY26": 267021, "FY25": 255324, ...},
-        "pbt": {...},
-        "net_profit": {...},
-        "net_worth": {...},
-        "fiscal_years": ["FY26", "FY25", "FY24"]
-    }
-    """
     try:
         response = requests.get(screener_url, headers=SCREENER_HEADERS, timeout=15)
         response.raise_for_status()
@@ -885,10 +650,6 @@ def get_financials_from_screener(screener_url: str, years: int = 3) -> dict:
 
 
 def search_unlisted_company_financials(company_name: str, website: str = None) -> dict:
-    """
-    Fallback for unlisted companies not present on Screener.
-    Searches web pages and annual report PDFs for financial disclosures of the current year.
-    """
     domain = urlparse(website).netloc.replace("www.", "") if website else None
     queries = [
         f"site:{domain} annual report financial statements revenue profit" if domain else f"{company_name} India annual report revenue profit",
@@ -905,3 +666,4 @@ def search_unlisted_company_financials(company_name: str, website: str = None) -
     return {
         "results": collected_results
     }
+

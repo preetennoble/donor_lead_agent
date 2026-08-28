@@ -37,6 +37,22 @@ def map_to_zoho_lead(company_data: dict) -> dict:
     partners = research.get("existing_implementation_partners") or []
     impl_partners = ", ".join(partners) if partners else "Not Found"
 
+    # Build committee members string with LinkedIn URLs
+    csr_data = company_data.get("csr_data") or {}
+    committee_members = csr_data.get("committee_members") or company_data.get("committee_members") or []
+    committee_linkedin = company_data.get("committee_members_linkedin") or {}
+    if committee_members:
+        comm_strs = []
+        for m in committee_members:
+            li_url = committee_linkedin.get(m)
+            if li_url:
+                comm_strs.append(f"{m} ({li_url})")
+            else:
+                comm_strs.append(m)
+        comm_members_str = ", ".join(comm_strs)
+    else:
+        comm_members_str = "Not Found"
+
     # Build description with all key research info
     description_parts = [
         f"Industry: {research.get('industry', 'Not Found')}",
@@ -50,6 +66,7 @@ def map_to_zoho_lead(company_data: dict) -> dict:
         f"CSR Spend (Prev FY): {research.get('csr_spend_previous_fy', 'Not Found')}",
         f"CSR Spend (3 FY): {research.get('csr_spend_previous_3fy', 'Not Found')}",
         f"Implementation Partners: {impl_partners}",
+        f"CSR Committee Members: {comm_members_str}",
         f"Has Company Foundation: {research.get('has_company_foundation', 'Not Found')}",
         f"Source URL: {research.get('source_url', 'Not Found')}",
     ]

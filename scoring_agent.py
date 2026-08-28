@@ -336,6 +336,30 @@ def score_company(company_id: str):
                       "qualitative signal.",
         }
 
+    # # CSR capacity gate: comment out this block when this rule is not needed.
+    # # Both the PBT-based and Net-Profit-based 2% CSR capacity calculations must
+    # # be at least Rs 3 Cr for the company to receive spend-capacity points.
+    # pbt_capacity = (company.get("csr_budget") or {}).get("csr_budget_2pct")
+    # net_profit_capacity = (company.get("csr_budget_net_profit") or {}).get(
+    #     "csr_budget_2pct_net_profit"
+    # )
+    # ratings = dict(ratings)
+    # if (
+    #     pbt_capacity is None
+    #     or net_profit_capacity is None
+    #     or pbt_capacity < 3
+    #     or net_profit_capacity < 3
+    # ):
+    #     ratings["spend_capacity"] = {
+    #         "rating": 0.0,
+    #         "reason": "PBT-based and Net-Profit-based CSR capacity must both be at least Rs 3 Cr.",
+    #     }
+    # else:
+    #     ratings["spend_capacity"] = {
+    #         "rating": 1.0,
+    #         "reason": "Both PBT-based and Net-Profit-based CSR capacity calculations are at least Rs 3 Cr.",
+    #     }
+
     # Weighted 0-100 score; ye ab tier (A/B/C) bhi decide karta hai.
     # NOTE: agar ratings_error set hai (jaise LLM rate-limited), to ratings={} aur
     # final_score 0 aa sakta hai - jo ek REAL 0-score se distinguish nahi hota
@@ -394,3 +418,4 @@ def score_company(company_id: str):
         "program_fitment": program_fit,
         "scoring_error": scoring_error,
     }
+

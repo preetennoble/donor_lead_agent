@@ -4,7 +4,7 @@
 {% set contact = research.get('contact', {}) or {} %}
 {% set contacts = c.get('contacts_json') or {} %}
 {% set crm = c.get('crm') or {} %}
-{% set ring_color = 'text-tertiary' if c.get('tier') == 'Tier A' else ('text-primary' if c.get('tier') == 'Tier B' else 'text-on-surface-variant') %}
+{% set ring_color = 'text-tertiary' if c.get('tier') == 'Tier A' else ('text-primary' if c.get('tier') == 'Tier B' else ('text-amber-500' if c.get('tier') in ['Tier C', 'Nurture', 'Medium', 'Medium Fit'] else 'text-on-surface-variant')) %}
 
 {% block title %}{{ c.company_name }} - DonorIQ{% endblock %}
 {% block page_kicker %}
@@ -54,10 +54,12 @@
 {% endif %}
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-gutter mb-stack-lg">
+    {% if c.get('tier') == 'Tier C' %}
     <div class="glass-card rounded-xl p-stack-md">
         <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1">Approval</p>
         <span class="approval-badge approval-{{ c.approval_status }}">{{ c.approval_status | upper }}</span>
     </div>
+    {% endif %}
     <div class="glass-card rounded-xl p-stack-md">
         <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1">Compliance</p>
         <p class="font-body-md text-body-md text-on-surface">{% if c.get('compliance_blocked') %}🚫 Blocked{% else %}✓ Verified{% endif %}</p>
@@ -125,6 +127,31 @@
             <div class="detail-field">
                 <strong>Education CSR Spend:</strong>
                 <span>{{ research.get('education_csr_spend', '-') if research else '-' }}</span>
+            </div>
+            {% set partners_list = (csr_data.get('implementation_partners') if csr_data else []) or (research.get('existing_implementation_partners') if research else []) or [] %}
+            <div class="detail-field">
+                <strong>Implementation Partners (NGOs):</strong>
+                <span>{{ (partners_list | join(', ')) or '-' }}</span>
+            </div>
+            {% set comm_list = (csr_data.get('committee_members') if csr_data else []) or (c.get('committee_members') or []) %}
+            {% set committee_linkedin = c.get('committee_members_linkedin') or (c.get('csr_data') or {}).get('committee_members_linkedin') or {} %}
+            {% set committee_linkedin_lookup = c.get('_committee_members_linkedin_lookup') or {} %}
+            <div class="detail-field">
+                <strong>CSR Committee Members:</strong>
+                <span>
+                    {% if comm_list %}
+                        {% for member in comm_list %}
+                            {% set li_url = committee_linkedin_lookup.get(member|string|trim|lower) %}
+                            {% if li_url %}
+                                <a href="{{ li_url }}" target="_blank" rel="noopener noreferrer" class="source-link" style="display:inline-flex; align-items:center; gap:2px;">{{ member }} 🔗</a>{% if not loop.last %}, {% endif %}
+                            {% else %}
+                                {{ member }}{% if not loop.last %}, {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                    {% else %}
+                        -
+                    {% endif %}
+                </span>
             </div>
             <div class="detail-field full-width">
                 <strong>Source URL:</strong>
@@ -289,23 +316,26 @@
             <span style="background: rgba(59, 130, 246, 0.2); color: #38bdf8; padding: 4px 10px; border-radius: 4px; font-size: 12px;">{{ area }}</span>
             {% endfor %}
         </div>
-        {% if csr_data.get('implementation_partners') %}
+        {% set display_partners = (csr_data.get('implementation_partners') if csr_data else []) or (research.get('existing_implementation_partners') if research else []) or [] %}
+        {% if display_partners %}
         <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">Implementation Partners (NGOs):</div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
-            {% for partner in (csr_data.get('implementation_partners') or [])[:5] %}
+            {% for partner in display_partners[:10] %}
             <span style="background: rgba(168, 85, 247, 0.2); color: #d8b4fe; padding: 4px 10px; border-radius: 4px; font-size: 12px;">{{ partner }}</span>
             {% endfor %}
         </div>
         {% endif %}
-        {% if csr_data.get('committee_members') %}
-        {% set committee_linkedin = c.get('committee_members_linkedin') or {} %}
+        {% set display_committee = (csr_data.get('committee_members') if csr_data else []) or (c.get('committee_members') or []) %}
+        {% if display_committee %}
+        {% set committee_linkedin = c.get('committee_members_linkedin') or (c.get('csr_data') or {}).get('committee_members_linkedin') or {} %}
+        {% set committee_linkedin_lookup = c.get('_committee_members_linkedin_lookup') or {} %}
         <div style="font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">
             CSR Committee Members:
             {% if committee_linkedin %}<span style="font-weight:400; font-style:italic;">(LinkedIn links are unverified name matches - confirm before using)</span>{% endif %}
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-            {% for member in csr_data.get('committee_members') or [] %}
-                {% set li_url = committee_linkedin.get(member) %}
+            {% for member in display_committee %}
+                {% set li_url = committee_linkedin_lookup.get(member|string|trim|lower) %}
                 {% if li_url %}
                 <a href="{{ li_url }}" target="_blank" rel="noopener noreferrer" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; padding: 4px 10px; border-radius: 4px; font-size: 12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">{{ member }}<span style="font-size:10px;">🔗</span></a>
                 {% else %}
@@ -449,39 +479,41 @@
     {% else %}
     <div class="csr-program-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px;">
         {% set overall_fit = pfit.get('Ennoble Fitment', 'Not Evident') %}
-        <div class="csr-program-item" style="grid-column: 1 / -1; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25);">
+        {% set is_high = 'high' in overall_fit.lower() %}
+        {% set is_medium = 'medium' in overall_fit.lower() or 'mod' in overall_fit.lower() %}
+        <div class="csr-program-item" style="grid-column: 1 / -1; {% if is_high %}background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.3);{% elif is_medium %}background: rgba(249, 115, 22, 0.12); border: 1px solid rgba(249, 115, 22, 0.3);{% else %}background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25);{% endif %}">
             <span class="csr-program-label" style="font-weight:700; color:#f1f5f9;">🌟 Overall Ennoble Fitment</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in overall_fit.lower() else ('no' if 'low' in overall_fit.lower() else 'unknown') }}">{{ overall_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if is_high else ('medium' if is_medium else ('no' if 'low' in overall_fit.lower() else 'unknown')) }}">{{ overall_fit }}</span>
         </div>
         {% set stem_fit = pfit.get('STEM Education', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">🔬 STEM Education</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in stem_fit.lower() else ('no' if 'low' in stem_fit.lower() else 'unknown') }}">{{ stem_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in stem_fit.lower() else ('medium' if ('medium' in stem_fit.lower() or 'mod' in stem_fit.lower()) else ('no' if 'low' in stem_fit.lower() else 'unknown')) }}">{{ stem_fit }}</span>
         </div>
         {% set infra_fit = pfit.get('School Infrastructure Transformation', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">🏫 School Infra Transformation</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in infra_fit.lower() else ('no' if 'low' in infra_fit.lower() else 'unknown') }}">{{ infra_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in infra_fit.lower() else ('medium' if ('medium' in infra_fit.lower() or 'mod' in infra_fit.lower()) else ('no' if 'low' in infra_fit.lower() else 'unknown')) }}">{{ infra_fit }}</span>
         </div>
         {% set holistic_fit = pfit.get('Holistic School Transformation', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">🔄 Holistic School Transformation</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in holistic_fit.lower() else ('no' if 'low' in holistic_fit.lower() else 'unknown') }}">{{ holistic_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in holistic_fit.lower() else ('medium' if ('medium' in holistic_fit.lower() or 'mod' in holistic_fit.lower()) else ('no' if 'low' in holistic_fit.lower() else 'unknown')) }}">{{ holistic_fit }}</span>
         </div>
         {% set anganwadi_fit = pfit.get('Anganwadi Transformation', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">🌱 Anganwadi Transformation</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in anganwadi_fit.lower() else ('no' if 'low' in anganwadi_fit.lower() else 'unknown') }}">{{ anganwadi_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in anganwadi_fit.lower() else ('medium' if ('medium' in anganwadi_fit.lower() or 'mod' in anganwadi_fit.lower()) else ('no' if 'low' in anganwadi_fit.lower() else 'unknown')) }}">{{ anganwadi_fit }}</span>
         </div>
         {% set quality_fit = pfit.get('Quality Education', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">📚 Quality Education</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in quality_fit.lower() else ('no' if 'low' in quality_fit.lower() else 'unknown') }}">{{ quality_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in quality_fit.lower() else ('medium' if ('medium' in quality_fit.lower() or 'mod' in quality_fit.lower()) else ('no' if 'low' in quality_fit.lower() else 'unknown')) }}">{{ quality_fit }}</span>
         </div>
         {% set model_fit = pfit.get('Model School Transformation', 'Not Evident') %}
         <div class="csr-program-item">
             <span class="csr-program-label">🏛️ Model School Transformation</span>
-            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in model_fit.lower() else ('no' if 'low' in model_fit.lower() else 'unknown') }}">{{ model_fit }}</span>
+            <span class="csr-flag-badge csr-flag-{{ 'yes' if 'high' in model_fit.lower() else ('medium' if ('medium' in model_fit.lower() or 'mod' in model_fit.lower()) else ('no' if 'low' in model_fit.lower() else 'unknown')) }}">{{ model_fit }}</span>
         </div>
     </div>
     {% endif %}
@@ -561,11 +593,11 @@
     <h2 class="font-headline-md text-headline-md text-on-surface mb-stack-md">CRM Status &amp; Follow-up</h2>
 
     <div class="flex flex-wrap gap-3 mb-stack-md">
-        {% if c.approval_status == 'approved' %}
+        {% if c.get('tier') == 'Tier C' and c.approval_status == 'approved' %}
         <span class="approval-badge approval-approved">✓ Approved</span>
-        {% elif c.approval_status == 'rejected' %}
+        {% elif c.get('tier') == 'Tier C' and c.approval_status == 'rejected' %}
         <span class="approval-badge approval-rejected">✗ Rejected</span>
-        {% else %}
+        {% elif c.get('tier') == 'Tier C' %}
         <form action="/approve/{{ c.id_str }}" method="post" class="inline-block">
             <button type="submit" class="btn-primary font-label-md text-label-md px-4 py-2 rounded-lg">✓ Approve</button>
         </form>

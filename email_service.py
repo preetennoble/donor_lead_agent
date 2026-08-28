@@ -275,3 +275,23 @@ def send_research_excel(company_id: str, recipient_email: str, recipient_name: s
     )
 
 
+def send_combined_research_excel(company_ids: list, recipient_email: str, recipient_name: str = None) -> dict:
+    from db import get_company
+    from excel_service import generate_combined_research_excel, generate_combined_research_excel_filename
+
+    companies = [get_company(company_id) for company_id in company_ids]
+    companies = [company for company in companies if company]
+    if not companies:
+        return {"success": False, "message": "No selected companies were found."}
+
+    excel_buffer = generate_combined_research_excel(companies)
+    email_service = EmailService()
+    return email_service.send_research_report(
+        recipient_email=recipient_email,
+        company_name=f"{len(companies)} selected companies",
+        pdf_buffer=excel_buffer,
+        filename=generate_combined_research_excel_filename(),
+        recipient_name=recipient_name,
+    )
+
+

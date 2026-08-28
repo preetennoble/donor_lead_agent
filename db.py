@@ -69,6 +69,24 @@ def update_user(user_id: str, updates: dict):
     users_col.update_one({"_id": ObjectId(user_id)}, {"$set": updates})
 
 
+def get_user_zoho_keys(username: str) -> dict:
+    """Retrieve custom per-user Zoho API keys from MongoDB."""
+    if not username:
+        return {}
+    user = get_user_by_username(username) or {}
+    return user.get("zoho_keys") or {}
+
+
+def update_user_zoho_keys(username: str, zoho_keys: dict):
+    """Save custom per-user Zoho API keys to MongoDB."""
+    if not username:
+        return
+    users_col.update_one(
+        {"username": username},
+        {"$set": {"zoho_keys": zoho_keys}}
+    )
+
+
 # ─────────────────────────────────────────────
 # Company functions — per-user collections
 # ─────────────────────────────────────────────

@@ -363,12 +363,10 @@ def research_company_with_financials(company_id: str, company_name: str, website
     else:
         print(f"[⚠️] Annual report PDF nahi mila, CSR data skip ho raha hai")
 
-    # Step 4b: Web search for education spend data (parallelize with PDF extraction)
-    print(f"[Step 4b] Education spend breakdown search ja rahe hain...")
-    edu_search_result = search_education_spend_data(company_name, website)
-    education_sources = edu_search_result.get("education_sources", [])
-    if education_sources:
-        print(f"[✅] {len(education_sources)} education spend sources mile")
+    # Step 4b: Web search for education spend data (disabled to save 4 search credits per company)
+    # edu_search_result = search_education_spend_data(company_name, website)
+    # education_sources = edu_search_result.get("education_sources", [])
+    education_sources = []
 
     # Step 6: Prospect criteria check karo
     print(f"[Step 6] Prospect criteria check ho raha hai...")
@@ -392,7 +390,7 @@ def research_company_with_financials(company_id: str, company_name: str, website
         "csr_data": csr_data,
         "committee_members_linkedin": committee_members_linkedin,
         "education_spend": education_spend_data,
-        "education_sources": education_sources,
+        # "education_sources": education_sources,  # Disabled
         "is_prospect": is_prospect,
         "financial_research_status": "done",
         # Screener/financials khud succeed ho gaye is run mein, isliye purani

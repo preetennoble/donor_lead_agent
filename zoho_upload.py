@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from audit_logger import log_action
 from crm_mapper import map_to_zoho_lead
-from db import get_company, update_company
+from db import get_company, update_company, get_user_zoho_keys
 
 load_dotenv()
 
@@ -22,55 +22,66 @@ def datetime_now_str():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_access_token():
-    """Generate an OAuth access token using the configured refresh token."""
+def get_access_token(user_zoho_keys: dict = None) -> tuple:
+    """Generate an OAuth access token using custom user credentials or .env fallback.
+    Returns (access_token, api_domain)."""
+    keys = user_zoho_keys or {}
+    client_id = keys.get("client_id") or CLIENT_ID
+    client_secret = keys.get("client_secret") or CLIENT_SECRET
+    refresh_token = keys.get("refresh_token") or REFRESH_TOKEN
+    accounts_url = keys.get("accounts_url") or ACCOUNTS_URL
+    api_domain = keys.get("api_domain") or API_DOMAIN
+
     credentials = {
-        "ZOHO_CLIENT_ID": CLIENT_ID,
-        "ZOHO_CLIENT_SECRET": CLIENT_SECRET,
-        "ZOHO_REFRESH_TOKEN": REFRESH_TOKEN,
+        "ZOHO_CLIENT_ID": client_id,
+        "ZOHO_CLIENT_SECRET": client_secret,
+        "ZOHO_REFRESH_TOKEN": refresh_token,
     }
     missing = [name for name, value in credentials.items() if not value]
     if missing:
         print(f"[Zoho Auth] Missing credentials: {', '.join(missing)}")
-        return None
+        return None, api_domain
 
     try:
         response = requests.post(
-            f"{ACCOUNTS_URL}/oauth/v2/token",
+            f"{accounts_url}/oauth/v2/token",
             params={
-                "refresh_token": REFRESH_TOKEN,
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "grant_type": "refresh_token",
             },
             timeout=10,
         )
         data = response.json()
         if data.get("access_token"):
-            return data["access_token"]
+            return data["access_token"], api_domain
         print(f"[Zoho Auth] Token request failed: {json.dumps(data)}")
     except (requests.RequestException, ValueError) as error:
         print(f"[Zoho Auth] Token request failed: {error}")
-    return None
+    return None, api_domain
 
 
-def upload_company_to_zoho(company_id: str) -> dict:
-    """Upload an approved company as a record in Zoho CRM's Leads module."""
-    company = get_company(company_id)
+def upload_company_to_zoho(company_id: str, username: str = None) -> dict:
+    """Upload an eligible company as a record in Zoho CRM's Leads module."""
+    company = get_company(company_id, username=username) if username else get_company(company_id)
     if not company:
         return {"status": "error", "message": "Company not found in database"}
-    if company.get("approval_status") != "approved":
-        return {"status": "error", "message": "Company must be approved before CRM upload"}
+    # Tier A and Tier B can be uploaded directly. Tier C still requires approval.
+    if company.get("tier") == "Tier C" and company.get("approval_status") != "approved":
+        return {"status": "error", "message": "Tier C company must be approved before CRM upload"}
 
+    user_zoho_keys = get_user_zoho_keys(username) if username else {}
     lead_payload = map_to_zoho_lead(company)
-    access_token = get_access_token()
+    access_token, target_api_domain = get_access_token(user_zoho_keys)
+
     if not access_token:
-        print(f"[Zoho Simulation] Uploading Lead: {json.dumps(lead_payload, indent=2)}")
+        print(f"[Zoho Simulation] Uploading Lead for user '{username}': {json.dumps(lead_payload, indent=2)}")
         update_company(company_id, {
             "upload_status": "uploaded",
             "zoho_lead_id": "SIM_LEAD_12345",
             "zoho_uploaded_at": datetime_now_str(),
-        })
+        }, username=username)
         log_action(company_id, "crm_upload_simulated", "ZohoUploadHandler", details="Simulated Lead upload.")
         return {"status": "simulated", "message": "Simulated Lead upload complete"}
 
@@ -78,14 +89,13 @@ def upload_company_to_zoho(company_id: str) -> dict:
     lead_id = None
     try:
         search_response = requests.get(
-            f"{API_DOMAIN}/crm/v6/Leads/search",
+            f"{target_api_domain}/crm/v6/Leads/search",
             headers=headers,
             params={"word": company["company_name"]},
             timeout=15,
         )
         if search_response.status_code == 200:
             records = search_response.json().get("data") or []
-            # The word search may return partial matches; only reuse an exact company match.
             lead_id = next((record["id"] for record in records if record.get("Company") == company["company_name"]), None)
     except (requests.RequestException, ValueError) as error:
         print(f"[Zoho] Lead duplicate check warning: {error}")
@@ -138,4 +148,7 @@ def upload_company_to_zoho(company_id: str) -> dict:
         "zoho_uploaded_at": datetime_now_str(),
     })
     log_action(company_id, "crm_uploaded", "ZohoUploadHandler", details="Uploaded Lead.")
-    return {"status": "success", "message": "Lead uploaded successfully"}
+    return {"status": "success", "message": "Lead uploaded successfully"}  
+
+
+    

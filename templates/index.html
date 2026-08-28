@@ -83,11 +83,19 @@
         </form>
         <p class="font-body-sm text-body-sm text-on-surface-variant mt-2">Columns: <code>company_name</code> (required), <code>website</code> (optional).</p>
         <div id="bulkStatus" class="font-body-sm text-body-sm text-on-surface-variant mt-2"></div>
+        <div id="bulkProgressPanel" class="hidden mt-3 rounded-lg border border-outline-variant/30 bg-[#0F1117]/70 p-3">
+            <div class="flex items-center justify-between gap-3">
+                <span class="font-label-md text-label-md text-on-surface">Bulk research progress</span>
+                <span id="bulkProgressCount" class="font-mono-sm text-mono-sm text-on-surface-variant">0 of 0</span>
+            </div>
+            <div class="progress-track mt-2"><div id="bulkProgressBar" class="progress-bar" style="width:0%;"></div></div>
+            <div id="bulkCompanyProgress" class="mt-3 grid gap-2"></div>
+        </div>
     </div>
 </div>
 
 {% if not companies %}
-<div class="glass-panel rounded-xl p-stack-lg text-center" style="padding: 4rem 2rem;">
+<div id="emptyState" class="glass-panel rounded-xl p-stack-lg text-center" style="padding: 4rem 2rem;">
     <div class="text-[48px] mb-4">📂</div>
     <p class="font-body-md text-body-md text-on-surface-variant">No companies in the database yet. Add one above to kick off the multi-agent pipeline.</p>
 </div>
@@ -100,6 +108,7 @@
         <button class="filter-tab font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-2 whitespace-nowrap transition-colors" data-filter="researching">Researching</button>
         <button class="filter-tab font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-2 whitespace-nowrap transition-colors" data-filter="scored">Scored</button>
         <button class="filter-tab font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-2 whitespace-nowrap transition-colors" data-filter="tier-a">Tier-A</button>
+        <button class="filter-tab font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-2 whitespace-nowrap transition-colors" data-filter="tier-b">Tier-B</button>
         <button class="filter-tab font-label-md text-label-md text-on-surface-variant hover:text-on-surface pb-2 whitespace-nowrap transition-colors" data-filter="prospect">Prospect</button>
     </div>
     <div class="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
@@ -122,12 +131,24 @@
             <span class="material-symbols-outlined text-[16px]">delete_sweep</span>
             Select to Delete
         </button>
+        <button type="button" id="emailSelectToggle" class="btn-secondary font-label-md text-label-md px-3 py-1.5 rounded-lg flex items-center gap-1" onclick="toggleEmailSelectMode()">
+            <span class="material-symbols-outlined text-[16px]">mail</span>
+            Email Excel
+        </button>
+    </div>
+</div>
+
+<div id="emailSelectBar" class="hidden glass-card rounded-xl p-stack-md mb-stack-md flex items-center justify-between flex-wrap gap-3">
+    <span class="font-body-sm text-body-sm text-on-surface-variant"><strong id="emailSelectedCount">0</strong> selected</span>
+    <div class="flex items-center gap-2">
+        <button type="button" class="btn-secondary font-label-md text-label-md px-4 py-2 rounded-lg" onclick="toggleEmailSelectMode()">Cancel</button>
+        <button type="button" id="emailSelectedBtn" class="btn-primary font-label-md text-label-md px-4 py-2 rounded-lg" disabled onclick="sendBulkResearchEmail()">✉ Email Combined Excel</button>
     </div>
 </div>
 
 <!-- Bulk Zoho upload action bar (hidden until select mode is on) -->
 <div id="zohoSelectBar" class="hidden glass-card rounded-xl p-stack-md mb-stack-md flex items-center justify-between flex-wrap gap-3">
-    <span class="font-body-sm text-body-sm text-on-surface-variant"><strong id="zohoSelectedCount">0</strong> selected (only approved companies can be selected)</span>
+    <span class="font-body-sm text-body-sm text-on-surface-variant"><strong id="zohoSelectedCount">0</strong> selected (Tier A/B, or approved Tier C)</span>
     <div class="flex items-center gap-2">
         <button type="button" class="btn-secondary font-label-md text-label-md px-4 py-2 rounded-lg" onclick="toggleZohoSelectMode()">Cancel</button>
         <button type="button" id="zohoUploadBtn" class="btn-primary font-label-md text-label-md px-4 py-2 rounded-lg" disabled onclick="startBulkZohoUpload()">⬆ Upload Selected to Zoho</button>
@@ -148,7 +169,7 @@
     {% for c in companies %}
     {% set is_pending = c.get('status', 'pending') not in ['scored', 'failed_research'] %}
     {% set score = c.get('score') %}
-    {% set ring_color = 'text-tertiary' if c.get('tier') == 'Tier A' else ('text-primary' if c.get('tier') == 'Tier B' else 'text-on-surface-variant') %}
+    {% set ring_color = 'text-tertiary' if c.get('tier') == 'Tier A' else ('text-primary' if c.get('tier') == 'Tier B' else ('text-amber-500' if c.get('tier') in ['Tier C', 'Nurture', 'Medium', 'Medium Fit'] else 'text-on-surface-variant')) %}
     <div class="company-card glass-card rounded-xl p-stack-md flex flex-col hover:border-primary/50 transition-colors duration-300 group {% if c.tier == 'Tier A' %}border-t-2 border-t-tertiary{% endif %}"
          style="position:relative;"
          data-name="{{ c.company_name | lower }}"
@@ -157,13 +178,16 @@
          data-stage="{{ c.get('record_stage', '') }}"
          data-score="{{ score }}"
          data-created="{{ c.created_at.isoformat() if c.get('created_at') else '' }}">
-        {% if c.approval_status == 'approved' %}
+        {% if c.get('tier') in ['Tier A', 'Tier B'] or (c.get('tier') == 'Tier C' and c.approval_status == 'approved') %}
         <label class="zoho-select-checkbox hidden" style="position:absolute; top:10px; left:10px; z-index:2; width:20px; height:20px;">
             <input type="checkbox" class="zoho-select-input" data-id="{{ c.id_str }}" data-name="{{ c.company_name }}" onchange="updateZohoSelection()" style="width:18px; height:18px; cursor:pointer;">
         </label>
         {% endif %}
         <label class="del-select-checkbox hidden" style="position:absolute; top:10px; left:10px; z-index:3; width:20px; height:20px;">
             <input type="checkbox" class="del-select-input" data-id="{{ c.id_str }}" data-name="{{ c.company_name }}" onchange="updateDeleteSelection()" style="width:18px; height:18px; cursor:pointer; accent-color:#e11d48;">
+        </label>
+        <label class="email-select-checkbox hidden" style="position:absolute; top:10px; left:34px; z-index:3; width:20px; height:20px;">
+            <input type="checkbox" class="email-select-input" data-id="{{ c.id_str }}" onchange="updateEmailSelection()" style="width:18px; height:18px; cursor:pointer; accent-color:#38bdf8;">
         </label>
         <a href="/company/{{ c.id_str }}" class="flex flex-col flex-grow" style="text-decoration:none; color:inherit;">
         <div class="flex justify-between items-start mb-4">
@@ -189,16 +213,60 @@
             </div>
             {% endif %}
         </div>
-        <div class="grid grid-cols-2 gap-4 mb-stack-md py-4 border-t border-[#2E3245]/50">
+        {% set fin = c.get('financial_data') or {} %}
+        {% set fy_list = fin.get('fiscal_years') or [] %}
+        {% set latest_turnover = (fin.get('turnover') or {}).get(fy_list[0]) if fy_list else None %}
+        <div class="grid grid-cols-3 gap-2 mb-stack-md py-3 border-t border-[#2E3245]/50">
             <div>
-                <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1">Sector</p>
-                <p class="font-body-md text-body-md text-on-surface truncate">{{ (c.get('research_json') or {}).get('industry', '-') }}</p>
+                <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1" style="font-size:10px;">Sector</p>
+                <p class="font-body-md text-body-md text-on-surface truncate" style="font-size:12px;">{{ (c.get('research_json') or {}).get('industry', '-') }}</p>
             </div>
             <div>
-                <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1">Lead Status</p>
-                <p class="font-body-md text-body-md {% if c.get('record_stage') == 'Prospect' %}text-tertiary font-medium{% else %}text-on-surface-variant italic{% endif %}">{{ c.get('record_stage', 'New') }}</p>
+                <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1" style="font-size:10px;">Turnover</p>
+                <p class="font-body-md text-body-md text-on-surface truncate font-semibold" style="font-size:12px;">
+                    {% if latest_turnover is not none and latest_turnover != '-' %}
+                        ₹{{ latest_turnover | commas }} Cr
+                    {% else %}
+                        -
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-1" style="font-size:10px;">Lead Status</p>
+                <p class="font-body-md text-body-md {% if c.get('record_stage') == 'Prospect' %}text-tertiary font-medium{% else %}text-on-surface-variant italic{% endif %}" style="font-size:12px;">{{ c.get('record_stage', 'New') }}</p>
             </div>
         </div>
+        {% set card_partners = (c.get('csr_data', {}) or {}).get('implementation_partners') or (c.get('research_json', {}) or {}).get('existing_implementation_partners') or [] %}
+        {% set card_comm = (c.get('csr_data', {}) or {}).get('committee_members') or c.get('committee_members') or [] %}
+        {% set card_comm_li = c.get('_committee_members_linkedin_lookup') or {} %}
+        {% if card_partners or card_comm %}
+        <div class="flex items-center gap-2 mb-3 flex-wrap font-body-sm" style="font-size: 11px;">
+            {% if card_partners %}
+            <span style="background: rgba(168, 85, 247, 0.15); color: #d8b4fe; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.3);" title="{{ card_partners | join(', ') }}">
+                🤝 {{ card_partners | length }} NGO Partner{% if card_partners | length > 1 %}s{% endif %}
+            </span>
+            {% endif %}
+            {% if card_comm %}
+                {% for member in card_comm[:2] %}
+                    {% set li = card_comm_li.get(member|string|trim|lower) %}
+                    {% if li %}
+                    <span onclick="event.stopPropagation(); window.open('{{ li }}', '_blank');" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(34, 197, 94, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="{{ member }} (LinkedIn Available)">
+                        👤 {{ member }} 🔗
+                    </span>
+                    {% else %}
+                    <span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(34, 197, 94, 0.3);" title="{{ member }}">
+                        👤 {{ member }}
+                    </span>
+                    {% endif %}
+                {% endfor %}
+                {% if card_comm | length > 2 %}
+                <span style="background: rgba(34, 197, 94, 0.10); color: #86efac; padding: 2px 6px; border-radius: 6px; font-size: 10px;" title="{{ card_comm[2:] | join(', ') }}">
+                    +{{ card_comm | length - 2 }} more
+                </span>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="mt-auto pt-2">
             <span class="w-full btn-secondary font-label-md text-label-md py-2.5 rounded-lg flex items-center justify-center gap-2 group-hover:bg-primary/10 group-hover:border-primary/30 transition-all">
                 View Details
@@ -228,8 +296,11 @@
 <!-- Live pipeline progress modal -->
 <div id="pipelineModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="pipelineTitle">
     <div class="modal-box pipeline-modal">
+        <div class="pipeline-modal-header">
+            <span class="section-kicker">Live pipeline activity</span>
+            <button type="button" class="pipeline-minimize-btn" id="pipelineMinimizeBtn" onclick="togglePipelineMinimize()" aria-label="Minimize processing card" title="Minimize">−</button>
+        </div>
         <div class="pipeline-orb"><span></span></div>
-        <p class="section-kicker">Live pipeline activity</p>
         <h2 class="modal-title" id="pipelineTitle">Preparing your research</h2>
         <p class="modal-subtitle" id="pipelineMessage">Adding the company to the pipeline.</p>
         <div class="progress-track"><div class="progress-bar" id="pipelineBar"></div></div>
@@ -249,6 +320,15 @@
 <script>
     let pipelinePoller = null;
 
+    function togglePipelineMinimize() {
+        const modal = document.getElementById('pipelineModal');
+        const button = document.getElementById('pipelineMinimizeBtn');
+        const minimized = modal.classList.toggle('pipeline-minimized');
+        button.textContent = minimized ? '+' : '−';
+        button.title = minimized ? 'Show processing details' : 'Minimize';
+        button.setAttribute('aria-label', minimized ? 'Show processing details' : 'Minimize processing card');
+    }
+
     function updatePipelineUI(progress) {
         document.getElementById('pipelineMessage').textContent = progress.message;
         document.getElementById('pipelineBar').style.width = `${progress.percent || 0}%`;
@@ -262,7 +342,10 @@
     }
 
     function startPipelineProgress(companyId) {
-        document.getElementById('pipelineModal').style.display = 'flex';
+        const modal = document.getElementById('pipelineModal');
+        modal.classList.remove('pipeline-minimized');
+        document.getElementById('pipelineMinimizeBtn').textContent = '−';
+        modal.style.display = 'flex';
         pipelinePoller = setInterval(async () => {
             try {
                 const response = await fetch(`/research-progress/${companyId}`);
@@ -316,6 +399,8 @@
             const skippedNote = result.skipped ? ` (${result.skipped} row(s) skipped — blank or duplicate names)` : '';
             statusEl.textContent = `Started research for ${total} compan${total === 1 ? 'y' : 'ies'}${skippedNote}. Tracking progress…`;
             showNotification(`Bulk pipeline started for ${total} compan${total === 1 ? 'y' : 'ies'}.`, 'success');
+            window.bulkStartedCompanies = result.started;
+            localStorage.setItem('bulkResearchBatch', JSON.stringify({companies: result.started, progress: {}}));
             trackBulkProgress(result.started.map(c => c.company_id), statusEl);
         } catch (error) {
             statusEl.textContent = error.message;
@@ -328,16 +413,91 @@
 
     function trackBulkProgress(companyIds, statusEl) {
         const total = companyIds.length;
+        const storedBatch = JSON.parse(localStorage.getItem('bulkResearchBatch') || 'null');
+        const trackedCompanies = (window.bulkStartedCompanies || storedBatch?.companies || []).filter(c => companyIds.includes(c.company_id));
+        const storedProgress = storedBatch?.progress || {};
+        const progressPanel = document.getElementById('bulkProgressPanel');
+        const countEl = document.getElementById('bulkProgressCount');
+        const barEl = document.getElementById('bulkProgressBar');
+        const companiesEl = document.getElementById('bulkCompanyProgress');
+        progressPanel?.classList.remove('hidden');
+
+        function renderBulkCompany(companyId, progress) {
+            const card = document.getElementById(`bulk-company-${companyId}`);
+            if (!card) return;
+            const state = progress.state || 'running';
+            const isDone = state === 'complete' || state === 'error';
+            card.dataset.state = state;
+            card.querySelector('.bulk-company-stage').textContent = progress.message || progress.stage || 'Processing…';
+            card.querySelector('.bulk-company-bar').style.width = `${progress.percent || 0}%`;
+            const mainCard = document.getElementById(`live-company-${companyId}`);
+            if (mainCard) {
+                mainCard.querySelector('.live-company-status').textContent = progress.message || progress.stage || 'Processing…';
+                mainCard.querySelector('.live-company-bar').style.width = `${progress.percent || 0}%`;
+            }
+            const action = card.querySelector('.bulk-company-action');
+            if (isDone) {
+                action.textContent = state === 'complete' ? 'Open company' : 'View company';
+                action.href = `/company/${companyId}`;
+                action.classList.remove('hidden');
+            }
+        }
+
+        function addBulkCompanyCard(company) {
+            if (!companiesEl || document.getElementById(`bulk-company-${company.company_id}`)) return;
+            const card = document.createElement('div');
+            card.id = `bulk-company-${company.company_id}`;
+            card.className = 'bulk-company-progress rounded-lg border border-outline-variant/25 p-2.5';
+            card.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="font-body-sm text-body-sm text-on-surface"></span><a class="bulk-company-action hidden font-label-md text-label-md text-primary hover:underline" target="_self"></a></div><div class="bulk-company-stage font-body-sm text-body-sm text-on-surface-variant mt-1">Queued</div><div class="progress-track mt-2"><div class="bulk-company-bar progress-bar" style="width:5%;"></div></div>`;
+            card.querySelector('.text-on-surface').textContent = company.company_name;
+            companiesEl?.appendChild(card);
+            addLiveCompanyCard(company);
+        }
+
+        function addLiveCompanyCard(company) {
+            if (document.getElementById(`live-company-${company.company_id}`)
+                || Array.from(document.querySelectorAll('#companyGrid a[href]')).some(link => link.getAttribute('href') === `/company/${company.company_id}`)) return;
+            let grid = document.getElementById('companyGrid');
+            if (!grid) {
+                document.getElementById('emptyState')?.classList.add('hidden');
+                grid = document.createElement('div');
+                grid.id = 'companyGrid';
+                grid.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter';
+                document.getElementById('emptyState')?.insertAdjacentElement('afterend', grid);
+            }
+            const card = document.createElement('div');
+            card.id = `live-company-${company.company_id}`;
+            card.className = 'company-card glass-card rounded-xl p-stack-md flex flex-col';
+            card.innerHTML = `<div class="flex items-start justify-between gap-2"><h3 class="font-headline-md text-headline-md text-on-surface"></h3><span class="font-mono-sm text-mono-sm text-secondary/90 uppercase">Bulk</span></div><p class="live-company-status font-body-sm text-body-sm text-on-surface-variant mt-2">Queued</p><div class="progress-track mt-3"><div class="live-company-bar progress-bar" style="width:5%;"></div></div><a class="mt-4 btn-secondary font-label-md text-label-md py-2 rounded-lg flex items-center justify-center" href="/company/${company.company_id}">Open company</a>`;
+            card.querySelector('h3').textContent = company.company_name;
+            grid.appendChild(card);
+        }
+
+        // Show every uploaded company immediately; each card updates independently.
+        trackedCompanies.forEach(addBulkCompanyCard);
+        trackedCompanies.forEach(company => {
+            if (storedProgress[company.company_id]) renderBulkCompany(company.company_id, storedProgress[company.company_id]);
+        });
         const poller = setInterval(async () => {
             try {
                 const results = await Promise.all(
-                    companyIds.map(id => fetch(`/research-progress/${id}`).then(r => r.json()).catch(() => ({ state: 'error' })))
+                    companyIds.map(id => fetch(`/research-progress/${id}`).then(r => r.json()).catch(() => ({ state: 'error', message: 'Unable to retrieve progress.' })))
                 );
                 const done = results.filter(r => r.state === 'complete' || r.state === 'error').length;
+                results.forEach((progress, index) => renderBulkCompany(companyIds[index], progress));
+                const batch = JSON.parse(localStorage.getItem('bulkResearchBatch') || 'null') || {companies: trackedCompanies, progress: {}};
+                results.forEach((progress, index) => { batch.progress[companyIds[index]] = progress; });
+                localStorage.setItem('bulkResearchBatch', JSON.stringify(batch));
+                if (countEl) countEl.textContent = `${done} of ${total}`;
+                if (barEl) barEl.style.width = `${total ? (done / total) * 100 : 0}%`;
                 statusEl.textContent = `Bulk pipeline: ${done} of ${total} companies finished…`;
                 if (done >= total) {
                     clearInterval(poller);
                     statusEl.textContent = `Bulk pipeline complete: ${total} of ${total} companies finished. Refreshing…`;
+                    // The dashboard now has the final company data; clear the
+                    // resume marker before the one intentional final refresh
+                    // so the refreshed page does not start another reload loop.
+                    localStorage.removeItem('bulkResearchBatch');
                     setTimeout(() => window.location.reload(), 1200);
                 }
             } catch (error) {
@@ -346,6 +506,19 @@
             }
         }, 1500);
     }
+
+    // Rebuild the bulk cards after a browser refresh while the batch is running
+    // (or after it has completed). Main company cards are loaded from the database.
+    window.addEventListener('DOMContentLoaded', () => {
+        const batch = JSON.parse(localStorage.getItem('bulkResearchBatch') || 'null');
+        if (!batch?.companies?.length) return;
+        window.bulkStartedCompanies = batch.companies;
+        const panel = document.getElementById('bulkImportPanel');
+        panel?.classList.remove('hidden');
+        const statusEl = document.getElementById('bulkStatus');
+        statusEl.textContent = 'Restored bulk research progress.';
+        trackBulkProgress(batch.companies.map(c => c.company_id), statusEl);
+    });
 
     // Search + filter tabs
     let activeFilter = 'all';
@@ -358,6 +531,7 @@
                 || (activeFilter === 'researching' && card.dataset.status !== 'scored' && card.dataset.status !== 'failed_research')
                 || (activeFilter === 'scored' && card.dataset.status === 'scored')
                 || (activeFilter === 'tier-a' && card.dataset.tier === 'Tier A')
+                || (activeFilter === 'tier-b' && card.dataset.tier === 'Tier B')
                 || (activeFilter === 'prospect' && card.dataset.stage === 'Prospect');
             const visible = matchesSearch && matchesFilter;
             card.style.display = visible ? '' : 'none';
@@ -412,6 +586,58 @@
 
     // Bulk select + delete (works on any company, not just approved ones)
     let deleteSelectMode = false;
+    let emailSelectMode = false;
+
+    function toggleEmailSelectMode() {
+        emailSelectMode = !emailSelectMode;
+        if (emailSelectMode && (deleteSelectMode || zohoSelectMode)) {
+            if (deleteSelectMode) toggleDeleteSelectMode();
+            if (zohoSelectMode) toggleZohoSelectMode();
+        }
+        document.querySelectorAll('.email-select-checkbox').forEach(el => el.classList.toggle('hidden', !emailSelectMode));
+        document.getElementById('emailSelectBar').classList.toggle('hidden', !emailSelectMode);
+        if (!emailSelectMode) {
+            document.querySelectorAll('.email-select-input').forEach(cb => cb.checked = false);
+            updateEmailSelection();
+        }
+    }
+
+    function getSelectedEmailIds() {
+        return Array.from(document.querySelectorAll('.email-select-input:checked')).map(cb => cb.dataset.id);
+    }
+
+    function updateEmailSelection() {
+        const count = getSelectedEmailIds().length;
+        document.getElementById('emailSelectedCount').textContent = count;
+        document.getElementById('emailSelectedBtn').disabled = count === 0;
+    }
+
+    async function sendBulkResearchEmail() {
+        const ids = getSelectedEmailIds();
+        if (!ids.length) return;
+        const recipientEmail = prompt('Send the combined Excel file to which email address?');
+        if (!recipientEmail) return;
+        const recipientName = prompt('Recipient name (optional):') || '';
+        const btn = document.getElementById('emailSelectedBtn');
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+            const response = await fetch('/email-research-bulk', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({company_ids: ids, recipient_email: recipientEmail, recipient_name: recipientName})
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Could not send the combined Excel file.');
+            showNotification(data.message, 'success');
+            toggleEmailSelectMode();
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '✉ Email Combined Excel';
+            updateEmailSelection();
+        }
+    }
 
     function toggleDeleteSelectMode() {
         deleteSelectMode = !deleteSelectMode;

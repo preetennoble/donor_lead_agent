@@ -74,11 +74,6 @@ def extract_research_with_contact(company_name: str, sources: list):
     source_text_char_limit = 100000 if openai_key else 38000
 
     combined_text = ""
-    # Sort sources by priority and take top 10 most relevant sources.
-    # Per-source cap raised to 3000 chars and total cap raised to 20000 chars so that
-    # all 7 CSR search stages (STEM, Infrastructure, Anganwadi, Quality Education, etc.)
-    # contribute text to the LLM rather than being silently truncated after the first
-    # 2-3 financial/contact sources fill the old 5000-char budget.
     sorted_sources = sorted(sources, key=lambda s: s.get("priority", 99))[:10]
     for s in sorted_sources:
         raw_source_text = s.get("text", "")
@@ -124,12 +119,19 @@ GEOGRAPHY FIELD RULES:
     "Low"    = only 1 location is named, or no program-location information is found at all.
 
 CONTACT PERSON RULES:
-- Identify the most relevant CSR, Sustainability, Foundation, ESG, Corporate Affairs, HR, or Leadership contact.
-- Priority order for contact info: Company CSR/Foundation page > Annual Report/CSR Report/BRSR > LinkedIn > Media/event profile.
-- LinkedIn may ONLY be used for: name, current designation, company association.
-- NEVER extract email or phone from LinkedIn text — if only LinkedIn confirms the person, 
-  set email/mobile/phone to "Not publicly available".
-- Always note in "source" which type of source confirmed the contact (e.g. "LinkedIn", "Annual Report").
+- Identify and extract the best available key decision maker for the company.
+- Priority Order:
+  1. CSR Lead / Head of CSR / CSR Manager / Foundation Head / CSR Officer
+  2. Sustainability Lead / Chief Sustainability Officer (CSO) / ESG Head
+  3. CSR Committee Member / Board Member / Trustee
+  4. CEO / Managing Director (MD) / Founder / President / Executive Director
+  5. Chief Human Resources Officer (CHRO) / HR Head / VP HR / Director HR
+  6. Any senior Director / Key Management Personnel listed in public disclosures
+- If no dedicated CSR head is mentioned, ALWAYS extract the CEO, Managing Director, Founder, or HR Head.
+- Priority order for contact sources: Company Website/Leadership page > Annual Report/CSR Report/BRSR > LinkedIn > Registry (Zaubacorp/Tofler) > Media.
+- LinkedIn may be used for: name, current designation, company association, and linkedin_url.
+- NEVER fabricate email or phone numbers. If not explicitly stated, set to "Not publicly available".
+- Always note in "source" which type of source confirmed the contact (e.g. "LinkedIn", "Annual Report", "Company Website").
 
 Return ONLY valid JSON in this exact structure, nothing else:
 {{
@@ -144,9 +146,8 @@ Return ONLY valid JSON in this exact structure, nothing else:
   "csr_spend_previous_fy": "...",
   "csr_spend_previous_3fy": "...",
   "education_csr_spend": "...",
-  "unspent_csr_amount": "...",
   "has_company_foundation": "...",
-  "existing_implementation_partners": [],
+  "existing_implementation_partners": ["Extract all named NGO partners, implementation agencies, non-profit foundations, or execution partners mentioned for the company's CSR projects"],
   "num_implementation_partners": null,
   "avg_ticket_size": "...",
   "previous_education_projects": "...",
